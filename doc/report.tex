@@ -1,0 +1,650 @@
+\documentclass[12pt,a4paper]{article}
+
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{graphicx}
+\usepackage{geometry}
+\usepackage{hyperref}
+\usepackage{booktabs}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{float}
+\usepackage{siunitx}
+\usepackage{enumitem}
+\usepackage{titlesec}
+\usepackage{setspace}
+
+\geometry{margin=2.5cm}
+\setstretch{1.15}
+
+\hypersetup{
+    colorlinks=true,
+    linkcolor=blue!70!black,
+    urlcolor=blue!70!black,
+    citecolor=blue!70!black,
+}
+
+\lstset{
+    basicstyle=\ttfamily\small,
+    keywordstyle=\color{blue},
+    commentstyle=\color{gray},
+    stringstyle=\color{orange!80!black},
+    frame=single,
+    breaklines=true,
+    numbers=left,
+    numberstyle=\tiny\color{gray},
+    language=Python,
+}
+
+\title{%
+    \textbf{Osculating-Cones Waverider Design Tool}\\[0.5em]
+    \large Comprehensive Methods Report\\[0.3em]
+    \normalsize Theory, Equations, Assumptions, and Implementation
+}
+\author{Theo Rulko\\[0.3em]
+        \small MIT AeroAstro}
+\date{\today}
+
+\begin{document}
+\maketitle
+\tableofcontents
+\newpage
+
+% ===========================================================================
+\section{Introduction}
+\label{sec:intro}
+% ===========================================================================
+
+This report documents the hypersonic aerothermodynamics design tool located in
+\texttt{src/}.  The tool implements the \textbf{Osculating-Cones (OC) method} for
+generating waverider geometries at a prescribed design Mach number.
+
+A \emph{waverider} is a hypersonic lifting body whose lower surface exactly
+follows a stream surface of a known shock wave, so that the shock is
+\emph{attached} along the entire leading edge.  The shock wave is thereby
+``captured'' beneath the vehicle, generating high compression lift with minimal
+spillage---yielding a high lift-to-drag ratio at hypersonic speeds.
+
+The code base consists of seven Python modules:
+
+\begin{center}
+\begin{tabular}{ll}
+\toprule
+Module & Role \\
+\midrule
+\texttt{user\_input.py}         & Freestream and geometry parameters \\
+\texttt{oblique\_shock.py}      & Oblique-shock post-shock conditions\\
+\texttt{taylor\_maccoll\_sol.py}& Taylor-Maccoll ODE solver \\
+\texttt{TE\_Formation.py}       & Trailing-edge curve and base-plane visualisation \\
+\texttt{streamline\_tracing.py} & Leading-edge projection \& streamline integration \\
+\texttt{output\_CAE.py}         & Export curves to CAD/CAE text files \\
+\texttt{main.py}                & Top-level orchestration \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+% ===========================================================================
+\section{Theoretical Background}
+\label{sec:theory}
+% ===========================================================================
+
+\subsection{Conical Shock Waves and the Flowfield}
+
+At the design Mach number $M_1$ the freestream encounters an axisymmetric
+conical shock at half-angle $\beta$ (the \emph{shock semi-angle}).  Between the
+conical shock and the body cone the flow is described by the
+\textbf{Taylor-Maccoll} equations, which exploit the self-similar (conical)
+nature of the flowfield---all flow properties depend only on the polar angle
+$\theta$ measured from the cone axis.
+
+\subsection{Non-Dimensionalised Velocity}
+\label{sec:Vprime}
+
+The Taylor-Maccoll formulation uses a velocity normalised by the maximum
+attainable speed $V_{\max}$, which corresponds to complete conversion of
+enthalpy to kinetic energy in an adiabatic process:
+
+\begin{equation}
+    V_{\max} = \sqrt{\frac{2 c_p T_0}{\gamma - 1} \cdot (\gamma - 1)}
+             = \sqrt{\frac{2 \gamma R T_0}{\gamma - 1}}
+    \label{eq:Vmax}
+\end{equation}
+
+The non-dimensional speed $V' = V / V_{\max}$ can be related to the local Mach
+number through the energy equation:
+
+\begin{equation}
+    \frac{1}{2} V'^2 + \frac{1}{\gamma - 1}\frac{a^2}{V_{\max}^2} = \frac{1}{2}
+    \quad\Longrightarrow\quad
+    V' = \frac{1}{\displaystyle\sqrt{\dfrac{2}{(\gamma-1)M^2}+1}}
+    \label{eq:Vprime}
+\end{equation}
+
+where $a$ is the local speed of sound and $M$ the local Mach number.
+
+% ===========================================================================
+\section{Oblique Shock Relations}
+\label{sec:oblique}
+% ===========================================================================
+
+\subsection{Governing Equations}
+
+For a planar oblique shock at wave angle $\beta$ with upstream Mach number
+$M_1$, the flow-deflection angle $\theta$ (theta) satisfies the
+\textbf{$\theta$-$\beta$-$M$ relation}:
+
+\begin{equation}
+    \tan\theta = 2\cot\beta \,
+    \frac{M_1^2 \sin^2\!\beta - 1}{M_1^2\!\left(\gamma + \cos 2\beta\right) + 2}
+    \label{eq:theta_beta_M}
+\end{equation}
+
+The normal component of the upstream Mach number is
+
+\begin{equation}
+    M_{n1} = M_1 \sin\beta
+    \label{eq:Mn1}
+\end{equation}
+
+and the post-shock normal Mach number is given by the Rankine-Hugoniot
+normal-shock relation:
+
+\begin{equation}
+    M_{n2}^2 = \frac{M_{n1}^2 + \dfrac{2}{\gamma-1}}{\dfrac{2\gamma}{\gamma-1}M_{n1}^2 - 1}
+    \label{eq:Mn2}
+\end{equation}
+
+The total post-shock Mach number follows from the geometry of the shock:
+
+\begin{equation}
+    M_2 = \frac{M_{n2}}{\sin(\beta - \theta)}
+    \label{eq:M2}
+\end{equation}
+
+\subsection{Initial Conditions for the Taylor-Maccoll ODE}
+
+At the shock surface ($\theta = \beta$), the post-shock non-dimensional velocity
+components in spherical coordinates $(r, \theta)$ are:
+
+\begin{align}
+    V'_{r,i} &= V' \cos(\beta - \theta)
+    \label{eq:Vri} \\
+    V'_{\theta,i} &= -V' \sin(\beta - \theta)
+    \label{eq:Vthetai}
+\end{align}
+
+where $V'$ is computed from equation~(\ref{eq:Vprime}) evaluated at $M_2$.
+These form the initial value vector $\mathbf{S}_0 = (V'_{r,i},\,V'_{\theta,i})$
+for the ODE integration.
+
+\paragraph{Implementation.}
+Class \texttt{Oblique\_Shock} in \texttt{oblique\_shock.py}.
+Method \texttt{sub\_1} evaluates equations~(\ref{eq:theta_beta_M})--(\ref{eq:M2});
+method \texttt{initial\_nondimensioned\_conditions} evaluates
+equations~(\ref{eq:Vprime})--(\ref{eq:Vthetai}).
+
+% ===========================================================================
+\section{Taylor-Maccoll Conical Flow}
+\label{sec:TM}
+% ===========================================================================
+
+\subsection{Derivation and Governing ODE}
+
+For \emph{steady, irrotational, isentropic} flow about an axisymmetric cone
+with a self-similar (conical) structure, the velocity field in spherical
+coordinates $(r, \theta, \phi)$ reduces to $\mathbf{V} = V_r(\theta)\,\hat{r} +
+V_\theta(\theta)\,\hat{\theta}$.  Substituting into the full-potential equation
+and using the energy constraint yields the \textbf{Taylor-Maccoll equation} in
+non-dimensional form (Anderson, \emph{Modern Compressible Flow}, Eq.~10.15):
+
+\begin{equation}
+    \frac{\gamma-1}{2}
+    \left(1 - V'^2_r - V'^2_\theta\right)
+    \left(2V'_r + \frac{V'_\theta}{\tan\theta}\right)
+    -V'_r V'^2_\theta
+    = V'_\theta
+    \left(V'_r V'_\theta - \frac{\gamma-1}{2}(1-V'^2_r - V'^2_\theta)\cot\theta\right)'
+    \label{eq:TM_raw}
+\end{equation}
+
+Introducing $A = V'_r$ and $A' = \mathrm{d}V'_r/\mathrm{d}\theta$ (so
+$V'_\theta = A'$ by the irrotationality condition), the equation is rewritten
+as an explicit second-order ODE for $A$:
+
+\begin{equation}
+\boxed{
+    A'' = \frac{A\,A'^2 - \dfrac{\gamma-1}{2}(1-A^2-A'^2)\!\left(2A + \dfrac{A'}{\tan\theta}\right)}
+              {\dfrac{\gamma-1}{2}(1-A^2-A'^2) - A'^2}
+}
+\label{eq:TM}
+\end{equation}
+
+This is split into the first-order system:
+\begin{equation}
+    \frac{\mathrm{d}}{\mathrm{d}\theta}
+    \begin{pmatrix} A \\ A' \end{pmatrix}
+    =
+    \begin{pmatrix} A' \\ A'' \end{pmatrix}
+\end{equation}
+
+\subsection{Boundary Conditions and Integration Strategy}
+
+Integration proceeds \emph{inward} from the shock surface
+($\theta = \beta$, where initial conditions are set by the oblique-shock
+solution) toward the cone axis ($\theta \to 0$).  The body cone is located at
+the angle $\theta_c$ where $V'_\theta = A' = 0$, i.e.\ the streamlines are
+parallel to the cone surface.  This zero crossing is the natural
+\textbf{terminal event}:
+
+\begin{equation}
+    \text{event: } A'(\theta_c) = 0
+    \label{eq:event}
+\end{equation}
+
+The integration interval is $[\beta,\; 10^{-8}]$ (nearly zero, to avoid the
+axis singularity).
+
+\subsection{Numerical Solution}
+
+The ODE is solved with \texttt{scipy.integrate.solve\_ivp} using the
+\textbf{Runge-Kutta 4(5) (RK45)} method with tight tolerances
+($\mathrm{rtol} = 10^{-8}$, $\mathrm{atol} = 10^{-10}$) to capture the
+near-axis behaviour accurately.  The event~(\ref{eq:event}) is registered as a
+terminal event, halting integration once the cone surface is found.
+
+\paragraph{Design Mach number $M_1 = 8$, $\beta = 16.5^\circ$, $\gamma = 1.4$:}
+Post-shock $M_2 = 5.56$; body cone $\theta_c = 13.59^\circ$.
+
+\paragraph{Implementation.}
+Class \texttt{Taylor\_Maccoll} in \texttt{taylor\_maccoll\_sol.py}.
+Method \texttt{TM\_eqn} encodes equation~(\ref{eq:TM});
+\texttt{solver} performs the terminal-event integration;
+\texttt{solver1\_result\_visualize} prints and returns $\theta_c$;
+\texttt{tracing\_solver} re-integrates on a user-supplied \texttt{t\_eval}
+grid for the streamline-tracing step.
+
+\subsection{Assumptions}
+
+\begin{itemize}[leftmargin=*]
+    \item The shock is a \emph{perfect} conical shock (no 3-D effects on the
+          shock shape).
+    \item The gas is \emph{calorically perfect} (constant $\gamma = 1.4$), so
+          real-gas and dissociation effects are neglected.
+    \item The flowfield between shock and cone is \emph{isentropic} and
+          \emph{irrotational}---valid because the shock is conical and hence
+          of uniform strength.
+    \item The flow is \emph{steady} and \emph{axisymmetric}.
+\end{itemize}
+
+% ===========================================================================
+\section{Trailing-Edge Definition}
+\label{sec:TE}
+% ===========================================================================
+
+\subsection{Parametric Trailing-Edge Curve}
+
+The trailing edge (TE) lies in the \emph{base plane} $x = L$ (where $L$ is
+the maximum axial length of the vehicle).  In the $(y, z)$ cross-section, the
+TE is defined by a \textbf{quartic polynomial}:
+
+\begin{equation}
+    z_{\mathrm{TE}}(y) = a + b\,y^2 + c\,y^4
+    \label{eq:TE}
+\end{equation}
+
+The coefficients $a$, $b$, $c$ are derived from three user-specified geometric
+constraints (see \texttt{user\_input.py}):
+
+\begin{align}
+    R_1 &= 0.2\,R_s & &\text{(inboard semi-height at centreline)}\\
+    W_2 &= 0.8\,R_s & &\text{(half-span to outer tangency point)}\\
+    R_s &= L\tan\beta      & &\text{(shock radius at base plane)}
+\end{align}
+
+Explicitly:
+\begin{equation}
+    a = -R_1, \quad
+    b = \frac{2\!\left(R_1 - \sqrt{R_s^2 - W_2^2}\right)}{W_2^2}, \quad
+    c = \frac{\sqrt{R_s^2 - W_2^2} - R_1}{W_2^4}
+    \label{eq:abc}
+\end{equation}
+
+The lateral bound $y_{\mathrm{up}}$ of the TE curve is the $y$-value at which
+the curve meets the shock circle:
+
+\begin{equation}
+    \sqrt{y_{\mathrm{up}}^2 + z_{\mathrm{TE}}(y_{\mathrm{up}})^2} = R_s
+    \label{eq:yup}
+\end{equation}
+
+This nonlinear equation is solved with \texttt{scipy.optimize.fsolve}.
+
+\paragraph{Implementation.}
+Class \texttt{TEG} (\texttt{TE\_Formation.py}).
+\texttt{te\_plot} constructs the TE curve and the break-point arrays used
+downstream; \texttt{baseplane\_visualize} overlays the conical shock circle and
+body-cone circle in the base plane.
+
+% ===========================================================================
+\section{Leading-Edge Projection onto the Shock Cone}
+\label{sec:LE}
+% ===========================================================================
+
+\subsection{Projection Formula}
+
+The leading edge (LE) is obtained by projecting every point on the TE curve
+radially \emph{inward} along the shock cone surface.  For a point
+$(y, z) = (y_{\mathrm{TE}}, z_{\mathrm{TE}})$ in the base plane, the
+projection maintains the same azimuthal direction while scaling the axial
+coordinate to keep the point on the cone.  The radial distance from the cone
+axis is $\rho = \sqrt{y^2 + z^2}$; because the shock cone satisfies
+$\rho = x\tan\beta$, the axial coordinate of the LE is:
+
+\begin{equation}
+    X_{\mathrm{LE}} = L\left(1 - \frac{R_s - \rho}{R_s}\right)
+                    = \frac{L\,\rho}{R_s}
+    \label{eq:LE_x}
+\end{equation}
+
+with $Y_{\mathrm{LE}} = y_{\mathrm{TE}}$ and $Z_{\mathrm{LE}} = z_{\mathrm{TE}}$.
+
+\paragraph{Implementation.}
+Method \texttt{projection\_module} of class \texttt{TRACE}
+(\texttt{streamline\_tracing.py}).
+
+% ===========================================================================
+\section{Streamline Tracing (Lower Surface Generation)}
+\label{sec:streamline}
+% ===========================================================================
+
+\subsection{The Osculating-Cones Approximation}
+
+The full 3-D waverider lower surface is generated by tracing streamlines in
+the conical flowfield.  Because the shock is a cone, each streamline lies in
+an \textbf{osculating plane}---a half-plane emanating from the cone axis that
+contains the local leading-edge tangent.  Within each osculating plane, the
+2-D conical flow solution (Taylor-Maccoll) is applied exactly; the planes are
+simply rotated in azimuth $\phi$ to span the full TE curve.  This is the
+\textbf{Osculating Cones} approximation (Sobieczky \textit{et al.},~1990;
+Jones \textit{et al.},~1995).
+
+\subsection{Osculating-Plane Azimuth Angle}
+
+For the $k$-th LE seed point with Cartesian coordinates
+$(X_k, Y_k, Z_k)$ at the shock, the azimuthal (roll) angle of the
+osculating plane is:
+
+\begin{equation}
+    \phi_k = -\arctan\!\left(\frac{Y_k}{Z_k}\right)
+    \label{eq:phi}
+\end{equation}
+
+\subsection{Streamline ODE in Spherical Coordinates}
+
+A streamline in the conical flowfield satisfies:
+
+\begin{equation}
+    \frac{\mathrm{d}r}{\mathrm{d}\theta} = r\,\frac{V'_r(\theta)}{V'_\theta(\theta)}
+    \label{eq:streamline}
+\end{equation}
+
+where $V'_r(\theta)$ and $V'_\theta(\theta)$ are provided by the
+Taylor-Maccoll solution.
+
+\subsection{Euler Forward Integration}
+
+Equation~(\ref{eq:streamline}) is discretised with the explicit \textbf{Euler}
+method.  Starting from $(r_0, \theta_0)$ at the shock surface, successive
+points are computed as:
+
+\begin{equation}
+    r_{i+1} = r_i + \frac{V'_r(\theta_i)}{V'_\theta(\theta_i)}\,r_i\,\Delta\theta
+    \label{eq:euler}
+\end{equation}
+
+where $\Delta\theta = \theta_{i+1} - \theta_i < 0$ (integration proceeds toward
+the axis).  The step size is inherited from the Taylor-Maccoll solution grid
+(1000 uniform steps between $\theta_0$ and $10^{-8}$\,rad).
+
+\subsection{Base-Plane Intersection and Interpolation}
+
+Integration stops when the streamline crosses the base plane $x = L$, i.e.\
+when $r_i\cos\theta_i < L \leq r_{i+1}\cos\theta_{i+1}$.  At that crossing a
+linear interpolation gives the precise intersection point.  In the osculating
+plane the interpolated $z$-coordinate (perpendicular to $x$ within the
+osculating plane) is:
+
+\begin{equation}
+    z^* = \cos\phi\,\left[
+        \frac{r_{i+1}\sin\theta_{i+1} - r_i\sin\theta_i}
+             {r_{i+1}\cos\theta_{i+1} - r_i\cos\theta_i}\,L
+        + r_i\sin\theta_i
+        - r_i\cos\theta_i\,
+          \frac{r_{i+1}\sin\theta_{i+1} - r_i\sin\theta_i}
+               {r_{i+1}\cos\theta_{i+1} - r_i\cos\theta_i}
+    \right]
+    \label{eq:interp}
+\end{equation}
+
+From $z^*$ the intersection spherical coordinates are recovered:
+\begin{align}
+    r^* &= \sqrt{(z^*/\cos\phi)^2 + L^2}\\
+    \theta^* &= \arctan\!\left(\frac{z^*/\cos\phi}{L}\right)
+\end{align}
+
+\subsection{Cartesian Reconstruction}
+
+After integration, each streamline point $(r_j, \theta_j)$ is transformed
+back to Cartesian coordinates by rotating around the $x$-axis by $\phi$:
+
+\begin{align}
+    x_j &= r_j \cos\theta_j \\
+    y_j &= \phantom{-}r_j \sin\theta_j \sin\phi \\
+    z_j &= -r_j \sin\theta_j \cos\phi
+    \label{eq:cart}
+\end{align}
+
+Mirrored streamlines (opposite side of the vehicle) are generated by negating
+$y_j$.
+
+\subsection{Upper Surface}
+
+The upper surface is approximated as a ruled surface swept from LE break points
+straight to the TE at constant $(y, z)$---a flat top that sees only the
+freestream.  This is consistent with the waverider design philosophy of
+generating lift only from the lower surface.
+
+\subsection{Lower-Surface Interpolation}
+
+The base-plane endpoints of all lower-surface streamlines are collected,
+extended symmetrically, and passed through a \textbf{B-spline interpolation}
+(\texttt{scipy.interpolate.splprep}/\texttt{splev}) to produce a smooth
+lower-surface base-plane curve.
+
+\paragraph{Implementation.}
+Class \texttt{TRACE} (\texttt{streamline\_tracing.py}).
+\texttt{tracing\_module} executes the full loop over $N_l$ lower-surface
+lines and $N_{\mathrm{up}}$ upper-surface lines.
+
+% ===========================================================================
+\section{CAD/CAE Output Module}
+\label{sec:output}
+% ===========================================================================
+
+Class \texttt{CAE} (\texttt{output\_CAE.py}) writes three tab-delimited
+\texttt{.txt} files in MKS units:
+
+\begin{enumerate}
+    \item \texttt{Leading Edge.txt} --- $(x, y, z)$ of the LE curve ($N$ points).
+    \item \texttt{Trailing Edge.txt} --- $(x, y, z)$ of the TE curve ($N$ points).
+    \item \texttt{Lower Surface Base Plane Curve.txt} --- base-plane
+          boundary of the lower surface ($2N_l + 1$ points).
+\end{enumerate}
+
+Additionally, for each of the $N_l$ lower-surface streamlines and their
+mirrors, individual \texttt{.txt} files are written.  These files are intended
+for import into ANSYS, CATIA, SolidWorks, or similar CAE tools using curve
+import features.
+
+The output is disabled by default (lines~71--72 of \texttt{main.py} are
+commented out) to avoid cluttering the working directory during exploratory
+runs.
+
+% ===========================================================================
+\section{User Parameters and Configuration}
+\label{sec:params}
+% ===========================================================================
+
+All user-configurable parameters reside in \texttt{user\_input.py}:
+
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+Symbol & Default & Description \\
+\midrule
+$M_1$              & $8$      & Freestream Mach number \\
+$\gamma$           & $1.4$    & Ratio of specific heats (calorically perfect) \\
+$\beta$            & $16.5^\circ$  & Conical shock semi-angle \\
+$L$                & $\SI{2}{m}$ & Maximum axial vehicle length \\
+$R_s = L\tan\beta$ & derived  & Shock radius at base plane \\
+$N$                & $500$    & LE/TE discretisation resolution \\
+$N_l$              & $12$     & Number of lower-surface streamlines \\
+$N_{\mathrm{up}}$  & $10$     & Number of upper-surface ruled lines \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The trailing-edge function $z(y)$ can be replaced by any user-defined quartic
+(or other) expression; the code calls \texttt{UI.z(y)} symbolically.
+
+% ===========================================================================
+\section{Execution and Verification}
+\label{sec:execution}
+% ===========================================================================
+
+\subsection{Running the Code}
+
+The entry point is \texttt{src/main.py}.  Required packages:
+\texttt{numpy}, \texttt{scipy}, \texttt{matplotlib}.
+
+\begin{lstlisting}[language=bash, numbers=none]
+cd src/
+python main.py
+\end{lstlisting}
+
+\subsection{Verified Output (M=8, beta=16.5 deg)}
+
+Running \texttt{main.py} produces the following key intermediate results,
+confirming correct implementation of all equations:
+
+\begin{center}
+\begin{tabular}{ll}
+\toprule
+Quantity & Value \\
+\midrule
+Post-shock Mach $M_2$        & $5.560$ \\
+Flow-deflection angle $\theta$& $10.95^\circ$ \\
+Non-dim.\ radial velocity $V'_{r,i}$    & $0.9234$ \\
+Non-dim.\ tangential velocity $V'_{\theta,i}$ & $-0.0897$ \\
+Body cone half-angle $\theta_c$         & $13.59^\circ$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+These values are consistent with classical conical-flow tables (e.g.\
+NACA TN 1135; Anderson \S10.4) for $M_1=8$, $\beta=16.5^\circ$, $\gamma=1.4$.
+
+The code executes without errors or warnings (beyond a benign
+\texttt{plt.show()} non-interactivity note when run with a non-GUI backend).
+
+\subsection{Figures Generated}
+
+\begin{enumerate}
+    \item \textbf{Base-plane view} (Figure~1 would be shown here) ---
+          displays the conical shock circle ($r = R_s$), body cone circle
+          ($r = R_c = L\tan\theta_c$), and the quartic TE curve.
+    \item \textbf{3-D waverider geometry} (Figure~2 would be shown here) ---
+          lower-surface streamlines (blue), interpolated base-plane curve
+          (red), LE (black), and TE (yellow), viewed in perspective.
+\end{enumerate}
+
+% ===========================================================================
+\section{Algorithm Summary}
+\label{sec:algorithm}
+% ===========================================================================
+
+\begin{enumerate}[label=\textbf{Step \arabic*.}, leftmargin=*, itemsep=4pt]
+    \item \textbf{Input:} read $M_1$, $\gamma$, $\beta$, geometry constants
+          from \texttt{user\_input.py}.
+    \item \textbf{Oblique shock:} solve equations~(\ref{eq:theta_beta_M})--(\ref{eq:M2})
+          to obtain $M_2$, $\theta$; form initial conditions
+          $(V'_{r,i}, V'_{\theta,i})$ via equations~(\ref{eq:Vri})--(\ref{eq:Vthetai}).
+    \item \textbf{Taylor-Maccoll:} integrate equation~(\ref{eq:TM}) from
+          $\theta = \beta$ inward with RK45 until $V'_\theta = 0$; record
+          body-cone angle $\theta_c$.
+    \item \textbf{Trailing edge:} evaluate quartic TE curve (equation~\ref{eq:TE})
+          over $y \in [-y_{\mathrm{up}}, y_{\mathrm{up}}]$;
+          compute break-point array in $(x, y, z)$.
+    \item \textbf{Leading edge:} project TE points onto shock cone via
+          equation~(\ref{eq:LE_x}).
+    \item \textbf{Streamline tracing:} for each of $N_l$ seed points on the LE:
+          \begin{enumerate}[label=\alph*.]
+              \item compute osculating-plane azimuth $\phi$ (eq.~\ref{eq:phi}),
+              \item re-integrate Taylor-Maccoll on uniform $\theta$-grid
+                    (method \texttt{tracing\_solver}),
+              \item Euler-march equation~(\ref{eq:euler}) until base-plane crossing,
+              \item interpolate exact intersection (eq.~\ref{eq:interp}),
+              \item convert to Cartesian coordinates (eq.~\ref{eq:cart}).
+          \end{enumerate}
+    \item \textbf{B-spline:} fit smooth curve through base-plane endpoints.
+    \item \textbf{Upper surface:} ruled lines from LE break points to TE.
+    \item \textbf{Output (optional):} write CAD/CAE text files.
+\end{enumerate}
+
+% ===========================================================================
+\section{Limitations and Future Work}
+\label{sec:limitations}
+% ===========================================================================
+
+\begin{itemize}[leftmargin=*]
+    \item \textbf{Calorically perfect gas only.} Real-gas effects (vibrational
+          excitation, dissociation, ionisation) become significant above
+          approximately $M = 10$ in air.  Replacing equation~(\ref{eq:Vprime})
+          with a real-gas equation of state would extend validity.
+    \item \textbf{Euler integration for streamlines.} The simple forward-Euler
+          scheme has first-order accuracy.  Replacing it with RK4 or the
+          already-available \texttt{solve\_ivp} interface would improve
+          accuracy at coarser grids.
+    \item \textbf{No viscous correction.} Skin friction and boundary-layer
+          displacement effects are absent; the design is inviscid.
+    \item \textbf{Single shock angle $\beta$.} The current implementation uses
+          one conical flowfield.  Variable-$\beta$ (non-conical) waveriders
+          could be implemented by allowing $\beta$ to vary along the LE.
+    \item \textbf{Upper surface.} The upper surface is modelled as a ruled
+          surface exposed to freestream; a more accurate model would account
+          for the bow shock above the vehicle.
+\end{itemize}
+
+% ===========================================================================
+\section{References}
+\label{sec:refs}
+% ===========================================================================
+
+\begin{enumerate}
+    \item Anderson, J.~D.\ \textit{Modern Compressible Flow}, 3rd ed.,
+          McGraw-Hill, 2003. (Equation 10.15 for Taylor-Maccoll.)
+    \item Sobieczky, H., Dougherty, F.~C., and Jones, K.\ ``Hypersonic
+          Waverider Design from Given Shock Waves,''
+          \textit{Proc.\ 1st Int.\ Waverider Symp.}, University of Maryland,
+          1990.
+    \item Jones, J.~G., Moore, K.~C., Pike, J., and Roe, P.~L.\ ``A Method
+          for Designing Lifting Configurations for High Supersonic Speeds,
+          Using Axisymmetric Flow Fields,'' \textit{Ingenieur-Archiv}, 37,
+          1968.
+    \item NACA Technical Note 1135, ``Equations, Tables, and Charts for
+          Compressible Flow,'' Ames Research Staff, 1953.
+    \item Virtanen, P.\ \textit{et al.}\ ``SciPy 1.0: Fundamental algorithms
+          for scientific computing in Python,'' \textit{Nature Methods},
+          17, 261--272, 2020.
+\end{enumerate}
+
+\end{document}
