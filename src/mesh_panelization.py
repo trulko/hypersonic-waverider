@@ -11,6 +11,7 @@ plot_panelization(lo, up, ...)
 
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib import cm, colors
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 
 
@@ -129,12 +130,13 @@ def panelize_geometry(geom):
     L      = params["L"]
 
     # ── Lower surface ────────────────────────────────────────────────────────
-    # Streamlines are ordered: index 0 ≈ symmetry plane, index N_l-1 = outer edge.
+    # Streamlines ordered: index 0 ≈ symmetry plane, index N_l-1 = outer edge.
     pos_lo = [_resample_curve(ls["curve"],          N_l) for ls in geom["lower_surface"]]
     neg_lo = [_resample_curve(ls["mirrored_curve"], N_l) for ls in geom["lower_surface"]]
 
-    # Positive-y and negative-y halves meshed independently
-    lt, ln, la = _mesh_half_surface(pos_lo, N_l)
+    # Strip winding: inner→outer in y.  For pos-y strips Δy>0 → raw N_z>0 (inward);
+    # flip to get outward.  For neg-y strips Δy<0 → raw N_z<0 (outward); keep.
+    lt, ln, la = _mesh_half_surface(pos_lo, N_l);  ln = -ln
     mt, mn, ma = _mesh_half_surface(neg_lo, N_l)
 
     lower_tris  = np.vstack([lt, mt])
@@ -142,7 +144,6 @@ def panelize_geometry(geom):
     lower_areas = np.concatenate([la, ma])
 
     # ── Upper surface ────────────────────────────────────────────────────────
-    # Each entry has a 1-D x-array and constant (y, z); mirror in y for both halves.
     def _upper_pts(us, sign_y):
         x = np.asarray(us["x"])
         y = np.full_like(x, sign_y * float(us["y"]))
@@ -152,20 +153,19 @@ def panelize_geometry(geom):
     pos_up = [_upper_pts(us,  1.0) for us in geom["upper_surface"]]
     neg_up = [_upper_pts(us, -1.0) for us in geom["upper_surface"]]
 
+    # For pos-y strips Δy>0 → raw N_z>0 (outward for upper); keep.
+    # For neg-y strips Δy<0 → raw N_z<0 (inward);  flip.
     ut, un, ua = _mesh_half_surface(pos_up, N_up)
-    vt, vn, va = _mesh_half_surface(neg_up, N_up)
+    vt, vn, va = _mesh_half_surface(neg_up, N_up);  vn = -vn
 
     upper_tris  = np.vstack([ut, vt])
     upper_norms = np.vstack([un, vn])
     upper_areas = np.concatenate([ua, va])
 
-    # ── Orient normals outward ────────────────────────────────────────────────
-    # Interior reference point: centroid of all surface vertices, slightly offset
-    # toward the interior (less negative z, since the vehicle sits at z < 0).
-    lo_cent = lower_tris.mean(axis=1)
-    up_cent = upper_tris.mean(axis=1)
-    interior_pt = 0.5 * (lo_cent.mean(axis=0) + up_cent.mean(axis=0))
-
+    # Orient normals consistently outward using a point inside the volume
+    lower_centroids = lower_tris.mean(axis=1)
+    upper_centroids = upper_tris.mean(axis=1)
+    interior_pt = 0.5 * (lower_centroids.mean(axis=0) + upper_centroids.mean(axis=0))
     lower_norms = _orient_outward(lower_tris, lower_norms, lower_areas, interior_pt)
     upper_norms = _orient_outward(upper_tris, upper_norms, upper_areas, interior_pt)
 
@@ -248,6 +248,67 @@ def plot_panelization(lower_mesh, upper_mesh,
     ax.legend(loc="best")
     ax.set_box_aspect([1, 1, 1])
     ax.set_aspect('equal')
+
+    if save_path:
+        fig.savefig(save_path, dpi=150, bbox_inches="tight")
+    if show:
+        plt.show()
+    plt.close(fig)
+
+
+def plot_scalar_field(mesh, values,
+                      title="Scalar field on mesh",
+                      cmap="viridis",
+                      colorbar_label="Value",
+                      vmin=None, vmax=None,
+                      save_path=None, show=True):
+    """Plot a scalar field over a triangular surface mesh.
+
+    Parameters
+    ----------
+    mesh          : dict from ``panelize_geometry``
+    values        : ndarray (N_tri,) scalar value per triangle
+    title         : plot title
+    cmap          : matplotlib colormap name
+    colorbar_label: label for the colorbar
+    vmin, vmax    : optional color limits
+    save_path     : file path to save figure; ``None`` skips saving
+    show          : call ``plt.show()`` if True
+    """
+    values = np.asarray(values, dtype=float)
+    if values.shape[0] != mesh["triangles"].shape[0]:
+        raise ValueError("values must match number of triangles")
+
+    fig = plt.figure(figsize=(10, 7))
+    ax = fig.add_subplot(111, projection="3d")
+
+    norm = colors.Normalize(vmin=vmin, vmax=vmax)
+    cmap_obj = cm.get_cmap(cmap)
+    facecolors = cmap_obj(norm(values))
+
+    verts = [tri for tri in mesh["triangles"]]
+    poly = Poly3DCollection(verts, facecolors=facecolors,
+                            edgecolor="k", linewidth=0.1)
+    ax.add_collection3d(poly)
+
+    # Axis limits from mesh vertices
+    all_verts = mesh["triangles"].reshape(-1, 3)
+    for i, lbl in enumerate(("x", "y", "z")):
+        lo, hi = all_verts[:, i].min(), all_verts[:, i].max()
+        pad = 0.05 * (hi - lo) if (hi - lo) > 0 else 1.0
+        getattr(ax, f"set_{lbl}lim")(lo - pad, hi + pad)
+
+    ax.set_xlabel("x")
+    ax.set_ylabel("y")
+    ax.set_zlabel("z")
+    ax.set_title(title)
+    ax.set_box_aspect([1, 1, 1])
+    ax.set_aspect("equal")
+
+    mappable = cm.ScalarMappable(norm=norm, cmap=cmap_obj)
+    mappable.set_array(values)
+    cbar = fig.colorbar(mappable, ax=ax, shrink=0.75, pad=0.05)
+    cbar.set_label(colorbar_label)
 
     if save_path:
         fig.savefig(save_path, dpi=150, bbox_inches="tight")
