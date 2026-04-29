@@ -7,7 +7,7 @@ The upper surface is assumed to be at freestream pressure (Cp = 0).
 
 Public API
 ----------
-compute_forces(geom, lower_mesh) -> dict
+compute_inviscid_forces(geom, lower_mesh) -> dict
 """
 
 import numpy as np

@@ -67,7 +67,7 @@ def minimum_blunting_radius(rho_inf, V_inf, T_allow,
                             emissivity=0.85,
                             T_bg=300.0,
                             k_sg=1.83e-4,
-                            safety_factor=1.0):
+                            safety_factor=1.5):
     """
     Minimum constant blunt radius so that stagnation-point radiative-equilibrium
     temperature does not exceed T_allow.

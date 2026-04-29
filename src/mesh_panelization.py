@@ -86,6 +86,17 @@ def _mesh_half_surface(curves, n_pts):
     return np.vstack(all_t), np.vstack(all_n), np.concatenate(all_a)
 
 
+def _upper_surface_profile(geom):
+    """Return sorted |y| and z arrays describing the upper surface."""
+    upper = geom.get("upper_surface", [])
+    if not upper:
+        return np.array([]), np.array([])
+    y = np.array([abs(us["y"]) for us in upper], dtype=float)
+    z = np.array([us["z"] for us in upper], dtype=float)
+    order = np.argsort(y)
+    return y[order], z[order]
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -204,14 +215,73 @@ def panelization_volume(lower_mesh, upper_mesh):
 
     return _proj_vol(lower_mesh) - _proj_vol(upper_mesh)
 
+
+# ---------------------------------------------------------------------------
+# Panelization class
+# ---------------------------------------------------------------------------
+
+class Panelization:
+    """Lightweight wrapper around the lower- and upper-surface triangle
+    meshes for a waverider geometry.
+
+    Attributes
+    ----------
+    geom        : the input geometry dict (from ``design_waverider``).
+    lower_mesh  : dict (see ``panelize_geometry``).
+    upper_mesh  : dict.
+    """
+
+    def __init__(self, geom):
+        self.geom = geom
+        self.lower_mesh, self.upper_mesh = panelize_geometry(geom)
+
+    @property
+    def n_lower(self):
+        return self.lower_mesh["triangles"].shape[0]
+
+    @property
+    def n_upper(self):
+        return self.upper_mesh["triangles"].shape[0]
+
+    @property
+    def n_triangles(self):
+        return self.n_lower + self.n_upper
+
+    @property
+    def wetted_area(self):
+        return panelization_wetted_area(self.lower_mesh, self.upper_mesh)
+
+    @property
+    def volume(self):
+        return panelization_volume(self.lower_mesh, self.upper_mesh)
+
+    @property
+    def height(self):
+        """Return (min_height, max_height) along +z between upper and lower surfaces."""
+        y_up, z_up = _upper_surface_profile(self.geom)
+        if y_up.size == 0:
+            return 0.0, 0.0
+        cents = self.lower_mesh["centroids"]
+        y_query = np.abs(cents[:, 1])
+        z_upper = np.interp(y_query, y_up, z_up, left=z_up[0], right=z_up[-1])
+        z_lower = cents[:, 2]
+        heights = np.abs(z_upper - z_lower)
+        if heights.size == 0:
+            return 0.0, 0.0
+        return float(heights.max())
+
+
+# ---------------------------------------------------------------------------
+# Matplotlib renderers
+# ---------------------------------------------------------------------------
+
 def plot_scalar_field(lower_mesh, lower_field,
                       upper_mesh=None, upper_field=None,
-                      title="Scalar field on mesh",
                       cmap="viridis",
                       colorbar_label="Value",
                       vmin=None, vmax=None,
                       lower_alpha=None, upper_alpha=None,
-                      save_path=None, show=True,
+                      save_path=None, interactive=False,
                       ax=None, return_fig_ax=False, norm=None):
     """Plot a scalar field over a triangular surface mesh.
 
@@ -221,7 +291,6 @@ def plot_scalar_field(lower_mesh, lower_field,
     lower_field   : ndarray (N_tri,) scalar value per triangle on lower surface
     upper_mesh    : dict from ``panelize_geometry`` (optional)
     upper_field   : ndarray (N_tri,) scalar value per triangle on upper surface (optional)
-    title         : plot title
     cmap          : matplotlib colormap name
     colorbar_label: label for the colorbar
     vmin, vmax    : optional color limits
@@ -229,7 +298,7 @@ def plot_scalar_field(lower_mesh, lower_field,
                     an upper mesh is provided, then defaults to 0.8
     upper_alpha   : transparency for upper mesh (0–1); if None, defaults to 0.8
     save_path     : file path to save figure; ``None`` skips saving
-    show          : call ``plt.show()`` if True
+    interactive   : call ``plt.show()`` if True
     """
     lower_field = np.asarray(lower_field, dtype=float)
     if lower_field.shape[0] != lower_mesh["triangles"].shape[0]:
@@ -287,7 +356,6 @@ def plot_scalar_field(lower_mesh, lower_field,
     ax.set_xticks([])
     ax.set_yticks([])
     ax.set_zticks([])
-    ax.set_title(title)
     ax.set_box_aspect([1, 1, 1])
     ax.set_aspect("equal")
 
@@ -300,253 +368,6 @@ def plot_scalar_field(lower_mesh, lower_field,
         fig.savefig(save_path, dpi=150, bbox_inches="tight")
     if return_fig_ax:
         return fig, ax
-    if show:
-        plt.show()
-    plt.close(fig)
-
-
-def _vsq_to_field(vsq, field, gamma, M1):
-    """Convert V'^2 to a chosen scalar field. T0 references upstream stagnation."""
-    vsq = np.clip(vsq, 0.0, 0.999999)
-    Mloc = np.sqrt(2.0 / (gamma - 1.0) * vsq / (1.0 - vsq))
-    if field == "mach":
-        return Mloc, "Mach number $M$"
-    if field == "temperature":
-        # T/T_inf = (1 - V'^2) * (1 + (gamma-1)/2 * M1^2)
-        T_ratio = (1.0 - vsq) * (1.0 + 0.5 * (gamma - 1.0) * M1**2)
-        return T_ratio, r"$T/T_\infty$"
-    if field == "density":
-        # Through isentropic conical flow downstream of the shock, using
-        # T/T0 = 1-V'^2 and p02 (constant in conical region) so rho/rho02 = (1-V'^2)^(1/(g-1)).
-        # For the freestream branch (used outside captured region), the same
-        # conversion gives rho/rho_inf = (1 - V'^2)/(1 - V'_inf^2) up to constants;
-        # we just plot rho/rho_inf-equivalent via Mach-derived (1-V'^2)^(1/(g-1)).
-        rho_ratio = (1.0 - vsq) ** (1.0 / (gamma - 1.0))
-        # normalise so freestream (M1) maps to 1
-        Vsq_inf = 1.0 / (2.0 / ((gamma - 1.0) * M1**2) + 1.0)
-        rho_inf = (1.0 - Vsq_inf) ** (1.0 / (gamma - 1.0))
-        return rho_ratio / rho_inf, r"$\rho/\rho_\infty$ (isentropic proxy)"
-    raise ValueError(f"unknown field '{field}'")
-
-
-def plot_flowfield_slices(geom, lower_mesh, upper_mesh,
-                          x_planes=None, n_grid=180,
-                          field="mach",
-                          cmap="jet",
-                          n_levels=24,
-                          slice_alpha=1.0,
-                          title=None,
-                          save_path=None, show=True):
-    """Plot the waverider body coloured by a flowfield scalar, with several
-    cutting planes that show CFD-style filled contours of the inviscid
-    Taylor-Maccoll/freestream solution and the captured shock arc.
-
-    Parameters
-    ----------
-    geom         : dict from ``design_waverider``.
-    lower_mesh   : dict from ``panelize_geometry`` (lower surface).
-    upper_mesh   : dict from ``panelize_geometry`` (upper surface).
-    x_planes     : sequence of axial stations (m); defaults to fractions of L.
-    n_grid       : grid resolution per side on each slice.
-    field        : 'mach', 'temperature', or 'density'.
-    cmap         : matplotlib colormap name.
-    n_levels     : number of contour levels per slice.
-    slice_alpha  : alpha for the filled contours.
-    title        : plot title; auto-generated if None.
-    save_path    : file path to save figure.
-    show         : call plt.show() if True.
-    """
-    from scipy.interpolate import interp1d
-    import matplotlib.tri as mtri
-    from aerodynamics import _tm_vsq_profile
-
-    params = geom["parameters"]
-    sc = geom["shock_conditions"]
-    M1       = params["M1"]
-    gamma    = params["gamma"]
-    L        = params["L"]
-    Rs       = params["Rs"]
-    beta_rad = sc["beta_rad"]
-    Vr_i     = sc["Vr_i"]
-    V_theta_i = sc["V_theta_i"]
-
-    # ── T-M V'^2(theta) profile and freestream value ───────────────────────
-    theta_tm, Vsq_tm = _tm_vsq_profile(gamma, beta_rad, Vr_i, V_theta_i)
-    Vsq_interp = interp1d(theta_tm[::-1], Vsq_tm[::-1], kind="linear",
-                          bounds_error=False,
-                          fill_value=(Vsq_tm[-1], Vsq_tm[0]))
-    Vsq_inf = 1.0 / (2.0 / ((gamma - 1.0) * M1**2) + 1.0)
-
-    # ── Body surface field for the 3-D mesh ────────────────────────────────
-    cents = lower_mesh["centroids"]
-    theta_lo = np.arctan2(np.sqrt(cents[:, 1]**2 + cents[:, 2]**2), cents[:, 0])
-    Vsq_lo = Vsq_interp(theta_lo)
-    f_lower, cbar_label = _vsq_to_field(Vsq_lo, field, gamma, M1)
-    f_upper_val, _      = _vsq_to_field(np.full(1, Vsq_inf), field, gamma, M1)
-    f_upper = np.full(upper_mesh["triangles"].shape[0], float(f_upper_val[0]))
-
-    # Color scale: span from cone-surface field through to freestream so the
-    # post-shock layer and the freestream rectangle both fit the colorbar.
-    f_shock, _ = _vsq_to_field(Vsq_tm[:1], field, gamma, M1)   # at θ=β  (post-shock)
-    f_cone,  _ = _vsq_to_field(Vsq_tm[-1:], field, gamma, M1)  # at θ=θc (cone surface)
-    f_inf,   _ = _vsq_to_field(np.full(1, Vsq_inf), field, gamma, M1)
-    f_min = min(float(f_shock[0]), float(f_cone[0]), float(f_inf[0]))
-    f_max = max(float(f_shock[0]), float(f_cone[0]), float(f_inf[0]))
-
-    if title is None:
-        title = f"Inviscid flowfield slices: {field}"
-
-    # Two-slope normalisation: the post-shock T-M layer occupies the lower
-    # half of the colormap (so its narrow variation is visible), and the
-    # freestream sits at the top half.
-    f_post = float(f_shock[0])
-    if f_min < f_post < f_max:
-        norm = colors.TwoSlopeNorm(vmin=f_min, vcenter=f_post, vmax=f_max)
-    else:
-        norm = colors.Normalize(vmin=f_min, vmax=f_max)
-    cmap_o = plt.get_cmap(cmap,15)
-    inf_rgba = list(cmap_o(norm(float(f_inf[0]))))
-
-    # ── Render the 3-D body via plot_scalar_field, get axes back ───────────
-    fig, ax = plot_scalar_field(
-        lower_mesh, f_lower,
-        upper_mesh=upper_mesh, upper_field=f_upper,
-        title=title, cmap=cmap, colorbar_label=cbar_label,
-        vmin=f_min, vmax=f_max, norm=norm,
-        lower_alpha=0.55, upper_alpha=0.25,
-        save_path=None, show=False,
-        return_fig_ax=True,
-    )
-
-    # ── Leading edge (used to determine captured azimuth at each slice) ────
-    le = geom["leading_edge"]
-    X_LE = np.asarray(le["x"], dtype=float)
-    Y_LE = np.asarray(le["y"], dtype=float)
-    Z_LE = np.asarray(le["z"], dtype=float)
-    # Azimuth around +x using the streamline_tracing convention
-    # (y = r sinθ sinφ, z = -r sinθ cosφ  →  φ = arctan2(y, -z))
-    phi_LE = np.arctan2(Y_LE, -Z_LE)
-
-    if x_planes is None: x_planes = [0.45 * L, 0.7 * L, 1.0 * L]
-
-
-    # ── Loop over slice planes ─────────────────────────────────────────────
-    for x_p in x_planes:
-        # Captured azimuth range at this x: |φ| ≤ φ_max(x_p)
-        cap = X_LE <= x_p + 1e-12
-        if not cap.any():
-            continue
-        phi_max = float(np.max(np.abs(phi_LE[cap])))
-        Rs_xp   = x_p * np.tan(beta_rad)
-
-        # Body lower-surface trace at x=x_p: one (y,z) per lower streamline.
-        # Streamlines lie in osculating planes (constant φ_k), so we can build
-        # r_body(φ) directly.
-        phi_body, rho_body = [], []
-        for ls in geom["lower_surface"]:
-            crv = np.asarray(ls["curve"], dtype=float)
-            xs = crv[:, 0]
-            if xs.min() - 1e-9 <= x_p <= xs.max() + 1e-9:
-                idx = np.argsort(xs)
-                ys = float(np.interp(x_p, xs[idx], crv[idx, 1]))
-                zs = float(np.interp(x_p, xs[idx], crv[idx, 2]))
-                phi_k = float(np.arctan2(ys, -zs))
-                rho_k = float(np.hypot(ys, zs))
-                phi_body.append(phi_k)
-                rho_body.append(rho_k)
-        if len(phi_body) < 2:
-            continue
-        phi_body = np.asarray(phi_body)
-        rho_body = np.asarray(rho_body)
-        # Mirror to negative-φ side
-        phi_full = np.concatenate([-phi_body[::-1], phi_body])
-        rho_full = np.concatenate([ rho_body[::-1], rho_body])
-        # Sort by φ and deduplicate
-        order = np.argsort(phi_full)
-        phi_full = phi_full[order]
-        rho_full = rho_full[order]
-        _, uniq = np.unique(phi_full, return_index=True)
-        phi_full = phi_full[uniq]
-        rho_full = rho_full[uniq]
-        rbody_interp = interp1d(phi_full, rho_full, kind="linear",
-                                bounds_error=False, fill_value=Rs_xp)
-
-        # Body upper-surface trace at x=x_p: LE break points (y_LE, z_LE) of
-        # streamlines whose LE is upstream of x_p (constant (y,z) along upper
-        # ruled lines from LE to TE).
-        cap_le = X_LE <= x_p + 1e-12
-        phi_up = phi_LE[cap_le]
-        rho_up = np.hypot(Y_LE[cap_le], Z_LE[cap_le])
-        order_u = np.argsort(phi_up)
-        phi_up = phi_up[order_u]
-        rho_up = rho_up[order_u]
-        _, uu = np.unique(phi_up, return_index=True)
-        phi_up = phi_up[uu]
-        rho_up = rho_up[uu]
-        rupper_interp = interp1d(phi_up, rho_up, kind="linear",
-                                 bounds_error=False, fill_value=Rs_xp)
-
-        # 2-D grid in the (y, z) plane at x = x_p
-        extent = 1.15 * Rs
-        y_lin = np.linspace(-extent, extent, n_grid)
-        z_lin = np.linspace(-extent, extent/5, n_grid)
-        Y, Z  = np.meshgrid(y_lin, z_lin)
-        rho_g = np.hypot(Y, Z)
-        theta_g = np.arctan2(rho_g, x_p)
-        phi_g   = np.arctan2(Y, -Z)
-
-        rbody_g = rbody_interp(phi_g)
-        Vsq_grid  = Vsq_interp(theta_g)
-        F_grid, _ = _vsq_to_field(Vsq_grid, field, gamma, M1)
-
-        # Single Poly3DCollection covering the whole plane: each triangle is
-        # coloured at the freestream value, or at the T-M field if inside the
-        # captured shock layer.  Body-interior triangles are dropped.
-        yy = Y.ravel(); zz = Z.ravel(); ff = F_grid.ravel()
-        triang = mtri.Triangulation(yy, zz)
-        tris = triang.triangles
-        yc = yy[tris].mean(axis=1)
-        zc = zz[tris].mean(axis=1)
-        rc = np.hypot(yc, zc)
-        phi_c = np.arctan2(yc, -zc)
-        rb_c  = rbody_interp(phi_c)
-
-        ru_c = rupper_interp(phi_c)
-        in_capt = (np.abs(phi_c) <= phi_max) & (rc >= rb_c) & (rc <= Rs_xp)
-        in_body = (np.abs(phi_c) <= phi_max) & (rc >= ru_c) & (rc < rb_c)
-        keep = ~in_body
-        if keep.any():
-            tris_k = tris[keep]
-            f_per  = np.where(in_capt[keep],
-                              ff[tris_k].mean(axis=1),
-                              float(f_inf[0]))
-            face = cmap_o(norm(f_per))
-            face[:, 3] = slice_alpha
-            verts3d = np.empty((tris_k.shape[0], 3, 3))
-            verts3d[:, :, 0] = x_p
-            verts3d[:, :, 1] = yy[tris_k]
-            verts3d[:, :, 2] = zz[tris_k]
-            ax.add_collection3d(Poly3DCollection(
-                verts3d, facecolors=face, edgecolor="none"))
-
-    # Refresh axis limits to include slice extents
-    extent = 1.15 * Rs
-    ax.set_xlim(0.0, L * 1.02)
-    ax.set_ylim(-extent, extent)
-    ax.set_zlim(-extent, extent/3)
-    ax.set_axis_off()
-    ax.grid(False)
-    ax.set_xticks([])
-    ax.set_yticks([])
-    ax.set_zticks([])
-    try:
-        ax.set_box_aspect((L, 2 * extent, 2 * extent))
-    except Exception:
-        pass
-    ax.view_init(elev=-12, azim=-65)
-
-    if save_path:
-        fig.savefig(save_path, dpi=150, bbox_inches="tight")
-    if show:
+    if interactive:
         plt.show()
     plt.close(fig)

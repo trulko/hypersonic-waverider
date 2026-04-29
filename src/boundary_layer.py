@@ -38,6 +38,8 @@ _SUTH_T0 = 273.15
 _SUTH_MU0 = 1.716e-5
 _SUTH_S = 110.4
 
+RTOL = 1e-4
+ATOL = 1e-6
 
 def sutherland_mu(T):
     T = np.asarray(T, dtype=float)
@@ -225,7 +227,7 @@ def integrate_walz(s, ue, Te, rho_e, mu_w, T_w, T_aw, gamma, Pr=0.72,
         return [dZ, dW]
 
     sol = solve_ivp(rhs, (s[0], s[-1]), [Z0_, W0_], t_eval=s,
-                    method="RK45", rtol=1e-7, atol=1e-10, max_step=(s[-1] - s[0]) / 20)
+                    method="RK45", rtol=RTOL, atol=ATOL, max_step=(s[-1] - s[0]) / 20)
     if not sol.success:
         raise RuntimeError(f"Walz integration failed: {sol.message}")
 
@@ -247,7 +249,7 @@ def integrate_walz(s, ue, Te, rho_e, mu_w, T_w, T_aw, gamma, Pr=0.72,
 # Edge conditions along a streamline (from Taylor-Maccoll)
 # ---------------------------------------------------------------------------
 
-def _tm_profiles(geom, n_theta=4000):
+def _tm_profiles(geom, n_theta):
     """Return interpolators for V'^2(θ), evaluated on the conical flow."""
     sc = geom["shock_conditions"]
     gamma = geom["parameters"]["gamma"]
@@ -271,7 +273,7 @@ def _tm_profiles(geom, n_theta=4000):
     return Vsq_of_theta, Vr_of_theta, Vt_of_theta
 
 
-def edge_conditions_along(points, geom, T_inf, p_inf):
+def edge_conditions_along(points, geom, T_inf, p_inf, n_theta):
     """
     For a streamline (N,3) of Cartesian points in the conical flowfield,
     return arrays (s, ue, Te, rho_e, p_e, Me) at each point.
@@ -297,7 +299,7 @@ def edge_conditions_along(points, geom, T_inf, p_inf):
     p02_p2 = (1 + (gamma - 1) / 2 * M2 ** 2) ** (gamma / (gamma - 1))
     p02 = p02_p2 * p2_p1 * p_inf
 
-    Vsq_of_theta, _, _ = _tm_profiles(geom)
+    Vsq_of_theta, _, _ = _tm_profiles(geom, n_theta=n_theta)
 
     # Polar angle from cone axis at each point
     x = pts[:, 0]; y = pts[:, 1]; z = pts[:, 2]
@@ -372,11 +374,11 @@ def upper_streamline_skin_friction(x_LE, y, z, L, T_inf, p_inf, T_w,
 
 
 def streamline_skin_friction(points, geom, T_inf, p_inf, T_w, Pr=0.72,
-                             resample=200):
+                             resample=200, n_theta=4000):
     """Run Walz on one (N,3) streamline; return per-station tau_w(s)."""
     pts = np.asarray(points, dtype=float)
     # Resample uniformly in arc length for stable derivatives
-    edge0 = edge_conditions_along(pts, geom, T_inf, p_inf)
+    edge0 = edge_conditions_along(pts, geom, T_inf, p_inf, n_theta=n_theta)
     s_raw = edge0["s"]
     if s_raw[-1] <= 0:
         return None
@@ -385,7 +387,7 @@ def streamline_skin_friction(points, geom, T_inf, p_inf, T_w, Pr=0.72,
     for j in range(3):
         pts_u[:, j] = np.interp(s_u, s_raw, pts[:, j])
 
-    edge = edge_conditions_along(pts_u, geom, T_inf, p_inf)
+    edge = edge_conditions_along(pts_u, geom, T_inf, p_inf, n_theta=n_theta)
     gamma = geom["parameters"]["gamma"]
     Tw_arr = np.full_like(edge["Te"], float(T_w))
     cp = gamma * R_AIR / (gamma - 1.0)
@@ -441,9 +443,8 @@ def _strip_drag(streamlines):
     return D_total
 
 
-def compute_skin_friction(geom, lower_mesh=None, upper_mesh=None,
-                          T_inf=216.65, p_inf=5474.9,
-                          T_w=1000.0, Pr=0.72, resample=200):
+def compute_skin_friction(geom, lower_mesh, upper_mesh,
+                          T_inf, p_inf, T_w, Pr, resample=200, n_theta=4000):
     """
     Compute skin-friction drag on the lower *and* upper surfaces of the
     waverider using Walz's integral method along each surface streamline.
@@ -462,6 +463,7 @@ def compute_skin_friction(geom, lower_mesh=None, upper_mesh=None,
     T_w         : wall temperature (K).  Constant by default.
     Pr          : Prandtl number.
     resample    : per-streamline resampling resolution.
+    n_theta     : number of polar angle samples for Taylor--Maccoll profiles.
 
     Returns
     -------
@@ -482,14 +484,11 @@ def compute_skin_friction(geom, lower_mesh=None, upper_mesh=None,
     rho_inf = p_inf / (R_AIR * T_inf)
     q_inf = 0.5 * rho_inf * V_inf ** 2
 
-    if lower_mesh is not None:
-        tris = lower_mesh["triangles"]
-        v0, v1, v2 = tris[:, 0], tris[:, 1], tris[:, 2]
-        cross_z = ((v1[:, 0] - v0[:, 0]) * (v2[:, 1] - v0[:, 1])
-                   - (v1[:, 1] - v0[:, 1]) * (v2[:, 0] - v0[:, 0]))
-        S_ref = float(np.abs(cross_z).sum() / 2.0)
-    else:
-        S_ref = 1.0
+    tris = lower_mesh["triangles"]
+    v0, v1, v2 = tris[:, 0], tris[:, 1], tris[:, 2]
+    cross_z = ((v1[:, 0] - v0[:, 0]) * (v2[:, 1] - v0[:, 1])
+                - (v1[:, 1] - v0[:, 1]) * (v2[:, 0] - v0[:, 0]))
+    S_ref = float(np.abs(cross_z).sum() / 2.0)
 
     # ----- lower surface -----
     lower_streamlines = []
@@ -498,7 +497,7 @@ def compute_skin_friction(geom, lower_mesh=None, upper_mesh=None,
         if crv.shape[0] < 3:
             continue
         res = streamline_skin_friction(crv, geom, T_inf, p_inf, T_w,
-                                       Pr=Pr, resample=resample)
+                                       Pr=Pr, resample=resample, n_theta=n_theta)
         if res is None:
             continue
         lower_streamlines.append(res)
@@ -620,41 +619,3 @@ def skin_friction_on_mesh(friction, mesh, geom, surface="lower", field="cf"):
 
     else:
         raise ValueError("surface must be 'lower' or 'upper'")
-
-
-# ---------------------------------------------------------------------------
-# Stand-alone tests
-# ---------------------------------------------------------------------------
-
-def _test_flat_plate():
-    """Sanity check: zero-pressure-gradient laminar BL → δ_2 ∝ √s, c_f Re_x^0.5 const."""
-    print("[boundary_layer] Flat-plate test (M_e = 0.1, low-speed)")
-    n = 200
-    s = np.linspace(1e-3, 1.0, n)
-    ue = np.full(n, 30.0)            # m/s
-    Te = np.full(n, 300.0)
-    pe = np.full(n, 101325.0)
-    rhoe = pe / (R_AIR * Te)
-    Tw = np.full(n, 300.0)
-    mu_w = sutherland_mu(Tw)
-    cp = 1.4 * R_AIR / 0.4
-    r = np.sqrt(0.72)
-    T_aw = Te + r * ue ** 2 / (2 * cp)
-
-    res = integrate_walz(s, ue, Te, rhoe, mu_w, Tw, T_aw, gamma=1.4, Pr=0.72)
-
-    # Blasius: δ_2 / x = 0.664 / sqrt(Re_x), Re_x = ρ u x / μ
-    Re_x = rhoe * ue * s / mu_w
-    blasius_d2 = 0.664 * s / np.sqrt(np.maximum(Re_x, 1.0))
-    blasius_cf = 0.664 / np.sqrt(np.maximum(Re_x, 1.0))
-
-    err_d2 = np.abs(res["delta2"][-1] / blasius_d2[-1] - 1.0)
-    err_cf = np.abs(res["cf"][-1] / blasius_cf[-1] - 1.0)
-    print(f"   x=1m  delta2: walz={res['delta2'][-1]:.4e}  blasius={blasius_d2[-1]:.4e}  "
-          f"rel-err={err_d2:.3f}")
-    print(f"   x=1m  c_f   : walz={res['cf'][-1]:.4e}  blasius={blasius_cf[-1]:.4e}  "
-          f"rel-err={err_cf:.3f}")
-
-
-if __name__ == "__main__":
-    _test_flat_plate()

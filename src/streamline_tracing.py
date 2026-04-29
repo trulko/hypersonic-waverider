@@ -149,7 +149,7 @@ class TRACE:
         return geometry
 
     def plot_geometry(self, geometry, X_p, Y_p, Z_p, X_b, Y_b, Z_b, save_path=None):
-        fig = plt.figure()
+        fig = plt.figure(figsize=(9, 7))
         ax = fig.add_subplot(111, projection='3d')
 
         for ls in geometry["lower_surface"]:
@@ -173,9 +173,9 @@ class TRACE:
         ax.set_xlabel('x')
         ax.set_ylabel('y')
         ax.set_zlabel('z')
-        ax.legend(loc='best')
+        ax.legend(loc='best',frameon=False)
         ax.set_aspect('equal')
 
         if save_path:
-            fig.savefig(save_path, dpi=150, bbox_inches='tight')
+            fig.savefig(save_path, dpi=600, bbox_inches='tight')
         plt.close(fig)

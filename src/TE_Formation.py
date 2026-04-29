@@ -229,9 +229,9 @@ class TEG:
         ax.set_title('Base Plane')
         ax.set_aspect('equal')
         ax.grid(True)
-        ax.legend(loc='best')
+        ax.legend(loc='best',frameon=False)
 
         if save_path:
-            fig.savefig(save_path, dpi=150, bbox_inches='tight')
+            fig.savefig(save_path, dpi=600, bbox_inches='tight')
         plt.close(fig)
         return cone
