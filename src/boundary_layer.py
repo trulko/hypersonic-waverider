@@ -20,6 +20,14 @@ from scipy.optimize import brentq
 from taylor_maccoll_sol import Taylor_Maccoll
 
 
+def _trapz_compat(y, x):
+    """Use trapezoid integration across NumPy versions."""
+    trapz_fn = getattr(np, "trapezoid", None)
+    if trapz_fn is None:
+        trapz_fn = np.trapz
+    return trapz_fn(y, x)
+
+
 # ---------------------------------------------------------------------------
 # Gas / fluid helpers
 # ---------------------------------------------------------------------------
@@ -429,7 +437,7 @@ def _strip_drag(streamlines):
         if contribs == 1:
             widths *= 2.0
         integrand = tau * dx_ds * widths
-        D_total += np.trapz(integrand, s)
+        D_total += _trapz_compat(integrand, s)
     return D_total
 
 
