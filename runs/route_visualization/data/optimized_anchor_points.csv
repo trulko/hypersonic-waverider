@@ -1,0 +1,8 @@
+index,name,role,lat_deg,lon_deg,region_radius_km
+1,Uppsala,departure,59.858600,17.638900,0.0
+2,Gulf of Bothnia,optimized_flyover,63.535737,15.639301,240.0
+3,Greenland,optimized_flyover,79.057601,-8.451090,1150.0
+4,Arctic Ocean,optimized_flyover,83.000000,-155.000000,1700.0
+5,Pacific Ocean,optimized_flyover,43.019045,151.636744,2100.0
+6,South China Sea,optimized_flyover,13.000000,114.000000,850.0
+7,Singapore,destination,1.352100,103.819800,0.0
