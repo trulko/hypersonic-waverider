@@ -16,7 +16,6 @@ from taylor_maccoll_sol import Taylor_Maccoll
 from TE_Formation import TEG
 from streamline_tracing import TRACE
 
-
 def design_waverider(
     M1: float,
     gamma: float,
@@ -27,6 +26,7 @@ def design_waverider(
     N_up: int = 10,
     R1_frac: float = 0.2,
     W2_frac: float = 0.8,
+    n_shape: float = 1.0,
     output_dir: str | None = None,
 ) -> dict:
     """
@@ -43,6 +43,7 @@ def design_waverider(
     N_up    : Number of upper-surface lines.
     R1_frac : Trailing-edge R1 as a fraction of Rs  (default 0.2).
     W2_frac : Trailing-edge W2 as a fraction of Rs  (default 0.8).
+    n_shape  : Trailing-edge shape exponent (default 1.0; 1.0 = circular arc).
     output_dir : Directory for saved plots; None disables plot output.
 
     Returns
@@ -57,17 +58,11 @@ def design_waverider(
                              "Vr_i", "V_theta_i", "cone_half_angle_deg"}.
         "parameters"      : echo of all input parameters plus derived Rs, a, b, c.
     """
+
+    # Build backface geometry
+    teg = TEG(gamma)
+    z_func, Rs = teg.make_simple_backface(L=L,beta_deg=beta,R1_frac=R1_frac,W_frac=W2_frac,n_shape=n_shape)
     beta_rad = np.radians(beta)
-    Rs = L * np.tan(beta_rad)
-    R1 = R1_frac * Rs
-    W2 = W2_frac * Rs
-
-    a = -R1
-    b = 2 * (R1 - np.sqrt(Rs**2 - W2**2)) / W2**2
-    c = (np.sqrt(Rs**2 - W2**2) - R1) / W2**4
-
-    def z_func(y):
-        return a + b * y**2 + c * y**4
 
     # --- oblique shock initial conditions ---
     os_solver = Oblique_Shock()
@@ -85,7 +80,6 @@ def design_waverider(
         os.makedirs(plot_dir, exist_ok=True)
 
     # --- base-plane plot ---
-    teg = TEG(gamma)
     teg.plot_baseplane(
         z_func, Rs, L, N, beta_rad, Vr_i, V_theta_i,
         save_path=os.path.join(plot_dir, "baseplane.png") if plot_dir else None,
@@ -115,7 +109,7 @@ def design_waverider(
     geometry["parameters"] = {
         "M1": M1, "gamma": gamma, "beta": beta, "L": L,
         "N": N, "N_l": N_l, "N_up": N_up,
-        "Rs": Rs, "R1": R1, "W2": W2, "a": a, "b": b, "c": c,
+        "Rs": Rs
     }
 
     return geometry

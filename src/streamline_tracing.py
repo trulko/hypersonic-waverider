@@ -162,7 +162,7 @@ class TRACE:
         ax.plot(bp["x"], bp["y"], bp["z"], color='r', lw=2, label='Lower Surface TE')
 
         ax.plot(X_p, Y_p, Z_p, color='k', label='Leading Edge')
-        ax.plot(X_b, Y_b, Z_b, color='y', label='Trailing Edge')
+        ax.plot(X_b, Y_b, Z_b, color='y', label='Trailing Edge', zorder=20)
 
         for us in geometry["upper_surface"]:
             x_u = us["x"]

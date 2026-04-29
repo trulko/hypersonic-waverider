@@ -168,8 +168,8 @@ print(f"Momentum thickness plot saved to {d2_plot_path}")
 flowfield_path = os.path.join(output_dir, "plots", "flowfield_slices.png")
 plot_flowfield_slices(
     geom, lower_mesh, upper_mesh,
-    field="temperature", # options: "mach", "temperature", "density"
-    cmap="Spectral_r",
+    field="mach", # options: "mach", "temperature", "density"
+    cmap="Spectral",
     save_path=flowfield_path,
     show=False,
 )

@@ -282,16 +282,18 @@ def plot_scalar_field(lower_mesh, lower_field,
         pad = 0.05 * (hi - lo) if (hi - lo) > 0 else 1.0
         getattr(ax, f"set_{lbl}lim")(lo - pad, hi + pad)
 
-    ax.set_xlabel("x")
-    ax.set_ylabel("y")
-    ax.set_zlabel("z")
+    ax.set_axis_off()
+    ax.grid(False)
+    ax.set_xticks([])
+    ax.set_yticks([])
+    ax.set_zticks([])
     ax.set_title(title)
     ax.set_box_aspect([1, 1, 1])
     ax.set_aspect("equal")
 
     mappable = cm.ScalarMappable(norm=norm, cmap=cmap_obj)
     mappable.set_array(lower_field)
-    cbar = fig.colorbar(mappable, ax=ax, shrink=0.75, pad=0.15)
+    cbar = fig.colorbar(mappable, ax=ax, shrink=0.75) #, pad=0.15)
     cbar.set_label(colorbar_label)
 
     if save_path:
@@ -527,20 +529,11 @@ def plot_flowfield_slices(geom, lower_mesh, upper_mesh,
             ax.add_collection3d(Poly3DCollection(
                 verts3d, facecolors=face, edgecolor="none"))
 
-        # Captured shock arc as thick black line
-        # n_arc = 200
-        # phi_arc = np.linspace(-phi_max, phi_max, n_arc)
-        # y_arc =  Rs_xp * np.sin(phi_arc)
-        # z_arc = -Rs_xp * np.cos(phi_arc)
-        # x_arc = np.full_like(y_arc, x_p)
-        # ax.plot(x_arc, y_arc, z_arc,
-        #         color="black", linewidth=1.0, zorder=20)
-
     # Refresh axis limits to include slice extents
     extent = 1.15 * Rs
     ax.set_xlim(0.0, L * 1.02)
     ax.set_ylim(-extent, extent)
-    ax.set_zlim(-extent, extent)
+    ax.set_zlim(-extent, extent/3)
     ax.set_axis_off()
     ax.grid(False)
     ax.set_xticks([])

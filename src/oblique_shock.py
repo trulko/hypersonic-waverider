@@ -21,23 +21,18 @@ class Oblique_Shock:
         delt = (theta_rad * 180)/np.pi
 
         return M2, delt, beta_rad, theta_rad
-    
+
     def initial_nondimensioned_conditions(self, M1, gamma, beta):
 
         aftershock = self.sub_1(M1, gamma, beta)
-        # print(f"Mach Number (After Shock) = {aftershock[0]}")
-        # print(f"theta (deflection) = {aftershock[1]}")
-        # print(f"Shock Angle = {aftershock[2]}")
-
         M = aftershock[0]
         V_pr = 1/(np.sqrt(2/((gamma - 1) * M**2) + 1))
 
         #   Initial Non-dimensioned Conditions
         Vr_i = V_pr * np.cos(aftershock[2]-aftershock[3])
         V_theta_i = - V_pr * np.sin(aftershock[2]-aftershock[3])
-        # print(f"M = {M}, V_pr = {V_pr}, Vr_i = {Vr_i}, V_theta_i = {V_theta_i}")
 
         return Vr_i, V_theta_i
-    
+
     def test(self):
         print(self.M1, self.gamma, self.beta)
