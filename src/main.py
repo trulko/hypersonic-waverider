@@ -17,9 +17,15 @@ from mesh_panelization import (
     panelization_volume,
     panelization_wetted_area,
     plot_scalar_field,
+    plot_flowfield_slices,
 )
 from aerodynamics import compute_inviscid_forces, compute_pressure
 from boundary_layer import compute_skin_friction, skin_friction_on_mesh
+from blunting_correction import (
+    minimum_blunting_radius,
+    blunt_leading_edge_force,
+    equilibrium_wall_temperature,
+)
 
 output_dir = "runs/M6_beta16.5"
 os.makedirs(os.path.join(output_dir, "plots"), exist_ok=True)
@@ -27,8 +33,8 @@ os.makedirs(os.path.join(output_dir, "plots"), exist_ok=True)
 # Given the input parameters, design the optimal waverider geometry
 geom = design_waverider(
     M1=6,
-    gamma=1.2, # lower gamma exaggerates reaction effects
-    beta=14,
+    gamma=1.4,
+    beta=16.5,
     L=20, # meters
     N=500,
     N_l=50,
@@ -47,16 +53,38 @@ n_tri  = lower_mesh["triangles"].shape[0] + upper_mesh["triangles"].shape[0]
 # Compute inviscid aerodynamic forces
 inviscid_forces = compute_inviscid_forces(geom, lower_mesh)
 
+# Freestream conditions (used by viscous + blunting calculations)
+T_inf, p_inf = 216.65, 5474.9      # ~20 km standard atmosphere
+R_AIR = 287.05
+gamma = geom["parameters"]["gamma"]
+M1    = geom["parameters"]["M1"]
+rho_inf = p_inf / (R_AIR * T_inf)
+V_inf   = M1 * (gamma * R_AIR * T_inf) ** 0.5
+T_allow = 2500.0   # max allowable surface temperature [K] (refractory composite)
+
 # Viscous skin-friction (Walz integral method along lower- and upper-surface streamlines)
 viscous_forces = compute_skin_friction(
     geom, lower_mesh, upper_mesh,
-    T_inf=216.65, p_inf=5474.9,   # ~20 km standard atmosphere
-    T_w=1000.0,                    # constant wall temperature (K)
+    T_inf=T_inf, p_inf=p_inf,
+    T_w=T_allow,                    # constant wall temperature (K)
 )
 
-# Total drag coefficient (inviscid + viscous)
-CD_total = inviscid_forces['CD'] + viscous_forces['CDf']
-LD_total = inviscid_forces['CL'] / CD_total if abs(CD_total) > 1e-12 else float('inf')
+# Blunt-leading-edge sizing & modified-Newtonian force correction
+le_size = minimum_blunting_radius(rho_inf, V_inf, T_allow=T_allow)
+R_n = le_size["R_min"]
+T_stag_check = equilibrium_wall_temperature(rho_inf, V_inf, R_n)
+
+S_ref = inviscid_forces["planform_area"]
+blunt_forces = blunt_leading_edge_force(
+    geom, R_n=R_n,
+    rho_inf=rho_inf, V_inf=V_inf,
+    M1=M1, gamma=gamma, S_ref=S_ref,
+)
+
+# Total drag and lift (inviscid pressure + viscous + blunt-LE)
+CL_total = inviscid_forces['CL'] + blunt_forces['dCL']
+CD_total = inviscid_forces['CD'] + viscous_forces['CDf'] + blunt_forces['dCD']
+LD_total = CL_total / CD_total if abs(CD_total) > 1e-12 else float('inf')
 
 # Report
 sc = geom["shock_conditions"]
@@ -76,9 +104,19 @@ print(f"  CD (inviscid) = {inviscid_forces['CD']:.4f}")
 print(f"  CDf lower     = {viscous_forces['CDf_lower']:.4f}  (D_f = {viscous_forces['D_lower']:.1f} N)")
 print(f"  CDf upper     = {viscous_forces['CDf_upper']:.4f}  (D_f = {viscous_forces['D_upper']:.1f} N)")
 print(f"  CDf total     = {viscous_forces['CDf']:.4f}  (D_f = {viscous_forces['D_friction']:.1f} N)")
+print(f"\nBlunt-leading-edge correction")
+print(f"  T_allow       = {T_allow:.1f} K")
+print(f"  R_n (min)     = {R_n*1e3:.2f} mm  (q_allow = {le_size['q_allow']/1e6:.3f} MW/m^2)")
+print(f"  T_eq @ R_n    = {T_stag_check:.1f} K  (sanity-check vs T_allow)")
+print(f"  sweep range   = [{blunt_forces['Lambda_deg'].min():.1f}, {blunt_forces['Lambda_deg'].max():.1f}] deg")
+print(f"  dCL (blunt)   = {blunt_forces['dCL']:+.4f}")
+print(f"  dCD (blunt)   = {blunt_forces['dCD']:+.4f}  (F_x = {blunt_forces['F'][0]:.1f} N)")
+print(f"\nTotals")
+print(f"  CL total      = {CL_total:.4f}")
 print(f"  CD total      = {CD_total:.4f}")
 print(f"  L/D inviscid  = {inviscid_forces['L_over_D']:.4f}")
-print(f"  L/D w/ visc.  = {LD_total:.4f}")
+print(f"  L/D w/ visc.  = {inviscid_forces['CL']/(inviscid_forces['CD']+viscous_forces['CDf']):.4f}")
+print(f"  L/D total     = {LD_total:.4f}")
 
 # Plot the lower-surface pressure coefficient
 pressure = compute_pressure(geom, lower_mesh)
@@ -122,6 +160,17 @@ plot_scalar_field(
     title=r"Momentum thickness $\delta_2$ [mm]",
     cmap="viridis",
     colorbar_label=r"$\delta_2$ [mm]",
-    save_path=d2_plot_path, show=True,
+    save_path=d2_plot_path, show=False,
 )
 print(f"Momentum thickness plot saved to {d2_plot_path}")
+
+# Plot flowfield Mach contours on cutting planes through the waverider
+flowfield_path = os.path.join(output_dir, "plots", "flowfield_slices.png")
+plot_flowfield_slices(
+    geom, lower_mesh, upper_mesh,
+    field="temperature", # options: "mach", "temperature", "density"
+    cmap="Spectral_r",
+    save_path=flowfield_path,
+    show=False,
+)
+print(f"Flowfield slice plot saved to {flowfield_path}")

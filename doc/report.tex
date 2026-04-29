@@ -416,7 +416,38 @@ Because the lower surface is a stream surface of the Taylor--Maccoll cone, each 
     p_e   &= p_{02}\,(1-V'^2(\theta))^{\gamma/(\gamma-1)}, \qquad
     \rho_e = p_e/(R T_e),
 \end{align}
-where $p_{02}$ is the post-shock stagnation pressure.
+where $p_{02}$ is the post-shock stagnation pressure. In the implementation this
+is obtained from the oblique-shock relations using the normal component
+$M_{n1} = M_1\sin\beta$:
+\begin{equation}
+    \frac{p_2}{p_1} = \frac{2\gamma M_{n1}^2 - (\gamma-1)}{\gamma+1}, \qquad
+    \frac{p_{02}}{p_1} = \frac{p_2}{p_1}\left(1 + \tfrac{\gamma-1}{2}M_2^2\right)^{\gamma/(\gamma-1)}.
+\end{equation}
+
+The pressure coefficient follows from $q_\infty = \tfrac{\gamma}{2}M_1^2 p_1$:
+\begin{equation}
+    C_p = \frac{p_e/p_1 - 1}{\tfrac{\gamma}{2}M_1^2}
+    = \frac{\left(\dfrac{p_{02}}{p_1}\right)(1-V'^2)^{\gamma/(\gamma-1)} - 1}{\tfrac{\gamma}{2}M_1^2}.
+\end{equation}
+
+\subsection{Inviscid force integration and coefficients}
+Only the lower surface contributes to inviscid pressure forces (the upper
+surface has $C_p = 0$).  The lower surface is panelized into triangles with
+area $\mathrm{d}A$ and outward unit normal $\hat{\mathbf{n}}$.  The pressure
+force on each panel is integrated in coefficient form as
+\begin{equation}
+    \mathrm{d}\mathbf{C}_F = -C_p\,\hat{\mathbf{n}}\,\frac{\mathrm{d}A}{S_{\mathrm{ref}}},
+\end{equation}
+so the total force coefficient vector is
+$\mathbf{C}_F = \sum \mathrm{d}\mathbf{C}_F$.  The reference area is the
+planform (projection) of the lower surface onto the $x$-$y$ plane,
+\begin{equation}
+    S_{\mathrm{ref}} = \sum\!\left|\frac{1}{2}
+    \left[(x_1-x_0)(y_2-y_0) - (y_1-y_0)(x_2-x_0)\right]\right|,
+\end{equation}
+using the projected triangle vertices $(x_i,y_i)$.  With the body traveling in
+$+x$ and lift positive in $+z$, the coefficient components are reported as
+$C_L = C_{F,z}$, $C_D = C_{F,x}$, and $L/D = C_L/C_D$.
 
 \section{Viscous shear (skin friction) calculation}
 To estimate viscous drag on the waverider surface, the laminar compressible integral boundary-layer method of Walz was used, following the implementation reported by Bowcutt in his viscous-optimized waverider design paper. We obtain the boundary layer edge conditions \(\{u_e, M_e, \rho_e, T_e\}\) from the external inviscid flow (Taylor--Macoll) and march the boundary layer downstream by solving a coupled pair of first-order ordinary differential equations along a streamline on the boundary-layer edge (the flow is assumed to be locally 2D). The model accounts for compressibility, wall-temperature effects, and streamwise pressure-gradient effects through the prescribed edge flow. It assumes a steady, continuum, laminar, thin, attached boundary layer with no flow separation or transition to turbulence. It assumes an isothermal wall at $T_w$; radiation equilibrium is not modelled.
@@ -565,6 +596,86 @@ evaluated by the trapezoidal rule.  The total friction-drag coefficient sums the
     C_{D_f} = C_{D_f}^{\mathrm{lower}} + C_{D_f}^{\mathrm{upper}},
 \end{equation}
 with $S_{\mathrm{ref}}$ the planform projection of the lower surface.
+
+
+% ===========================================================================
+\section{Blunt leading-edge correction}
+\label{sec:blunting}
+% ===========================================================================
+
+The osculating-cones construction produces an aerodynamically sharp leading edge (LE), which is unphysical: stagnation-point convective heating scales as $1/\sqrt{R_n}$ and would be unbounded.  A finite blunting radius $R_n$ is required to keep the surface temperature below a chosen material limit $T_{\text{allow}}$.  The blunt LE is treated as a circular cylinder of radius $R_n$ swept along the streamline-derived LE curve, and its inviscid pressure force is added to the sharp-LE result via the modified-Newtonian theory.
+
+\subsection{Stagnation-point sizing}
+\label{sec:LE_sizing}
+
+Convective heating at the stagnation point is estimated from the Sutton--Graves correlation for air,
+\begin{equation}
+    \dot{q}_{\text{conv}} = k_{\text{SG}}\sqrt{\frac{\rho_\infty}{R_n}}\,V_\infty^{3},
+    \qquad k_{\text{SG}} = 1.83 \times 10^{-4}\ \mathrm{W\,s^{3}\,kg^{-1/2}\,m^{-7/2}},
+    \label{eq:sutton_graves}
+\end{equation}
+and balanced against radiative equilibrium with emissivity $\varepsilon$, Stefan--Boltzmann constant $\sigma$, and background temperature $T_{\text{bg}}$:
+\begin{equation}
+    \dot{q}_{\text{rad}} = \varepsilon\sigma\!\left(T_w^{4} - T_{\text{bg}}^{4}\right).
+    \label{eq:rad_eq}
+\end{equation}
+Setting $\dot{q}_{\text{conv}} = \dot{q}_{\text{rad}}$ at $T_w = T_{\text{allow}}$ and inverting for the radius gives
+\begin{equation}
+    \boxed{\;
+        R_{n,\min}
+        = \rho_\infty\!\left(
+            \frac{k_{\text{SG}}\,V_\infty^{3}}
+                 {\varepsilon\sigma\!\left(T_{\text{allow}}^{4}-T_{\text{bg}}^{4}\right)}
+          \right)^{2}.\;}
+    \label{eq:Rmin}
+\end{equation}
+
+\subsection{Modified-Newtonian force on a swept cylindrical leading edge}
+\label{sec:LE_newton}
+
+The discretised leading-edge curve is processed segment by segment.  For a segment with unit tangent $\hat{\mathbf{t}}$ and freestream direction $\hat{\mathbf{u}}_\infty = \hat{\mathbf{x}}$, the local sweep angle $\Lambda$ is defined by
+\begin{equation}
+    \sin\Lambda = \hat{\mathbf{t}}\!\cdot\!\hat{\mathbf{u}}_\infty,
+    \qquad
+    \hat{\mathbf{u}}_\perp = \frac{\hat{\mathbf{u}}_\infty - \sin\Lambda\,\hat{\mathbf{t}}}{\cos\Lambda},
+\end{equation}
+where $\hat{\mathbf{u}}_\perp$ is the unit vector along the freestream component perpendicular to the LE.  The Mach number normal to the leading edge is $M_\perp = M_1\cos\Lambda$, and the modified-Newtonian peak pressure coefficient (evaluated at $M_\perp$) follows from the normal-shock stagnation-pressure construction
+\begin{equation}
+    C_{p,\max}(M_\perp)
+    = \frac{p_{02}/p_1 - 1}{\tfrac{1}{2}\gamma M_\perp^{2}},
+    \label{eq:Cpmax}
+\end{equation}
+where $p_{02}/p_1$ is built from the standard normal-shock and isentropic relations applied to $M_\perp$.
+
+In the plane perpendicular to $\hat{\mathbf{t}}$ the cylinder cross-section is a circle of radius $R_n$, parameterised by an angle $\phi$ measured from the stagnation line.  The modified-Newtonian distribution is
+\begin{equation}
+    C_p(\phi) = C_{p,\max}(M_\perp)\,\cos^{2}\!\Lambda\,\cos^{2}\!\phi,
+    \qquad |\phi| \le \pi/2 \text{ (windward)},
+\end{equation}
+and zero on the leeward side.  Integrating the pressure load $-C_p\,q_\infty\,R_n\,\hat{\mathbf{n}}\,\mathrm{d}\phi\,\mathrm{d}s$ over the windward half exploits $\int_{-\pi/2}^{\pi/2}\cos^{3}\phi\,\mathrm{d}\phi = 4/3$ and gives a closed-form resultant force per unit LE arc length,
+\begin{equation}
+    \boxed{\;
+        \frac{\mathrm{d}\mathbf{F}}{\mathrm{d}s}
+        = \tfrac{4}{3}\,q_\infty\,R_n\,C_{p,\max}(M_\perp)\,\cos^{2}\!\Lambda\;\hat{\mathbf{u}}_\perp.\;}
+    \label{eq:LE_force}
+\end{equation}
+The transverse component (in the $\hat{\mathbf{t}}\!\times\!\hat{\mathbf{u}}_\perp$ direction) vanishes by symmetry of $\cos^{2}\!\phi$ about $\phi = 0$.
+
+\subsection{Discretisation and integration}
+
+The leading-edge curve $\{(X_k,Y_k,Z_k)\}_{k=1}^{N}$ from \S\ref{sec:LE} is differenced to obtain segment tangents $\hat{\mathbf{t}}_k$ and arc lengths $\Delta s_k$.  Equation~(\ref{eq:LE_force}) is evaluated at every segment and summed,
+\begin{equation}
+    \mathbf{F}_{\text{LE}}
+    \;=\; \sum_{k} \tfrac{4}{3}\,q_\infty\,R_n\,
+        C_{p,\max}(M_{\perp,k})\,\cos^{2}\!\Lambda_k\;\hat{\mathbf{u}}_{\perp,k}\,\Delta s_k.
+\end{equation}
+Because the discretised LE spans the full vehicle ($y\in[-y_{\text{up}},+y_{\text{up}}]$) no symmetry doubling is required.  The resultant lift- and drag-coefficient increments are
+\begin{equation}
+    \Delta C_L = \frac{F_{\text{LE},z}}{q_\infty S_{\text{ref}}},
+    \qquad
+    \Delta C_D = \frac{F_{\text{LE},x}}{q_\infty S_{\text{ref}}},
+\end{equation}
+which are added to the sharp-LE inviscid coefficients of \S4 and the viscous skin-friction drag of \S5 to obtain the total aerodynamic coefficients.  Segments for which $M_\perp \le 1$ (i.e.\ $\cos\Lambda < 1/M_1$) are assigned $C_{p,\max} = 0$, since the modified-Newtonian construction relies on a detached normal shock.
 
 
 % ===========================================================================
