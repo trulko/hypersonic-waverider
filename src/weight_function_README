@@ -1,0 +1,22 @@
+# Weight
+
+# Constraints
+# number of passengers: 100
+
+
+# What we need to get weight
+# 1. Payload weight (passengers + luggage)
+# 2. Zero fuel weight
+    # 2.1. weight per unit volume of the waverider x volume of the waverider
+#3. Fuel weight
+    # 3.1. Amount of fuel required for the trip, given the distance and the engine efficiency
+#4. Powerplant weight
+    # 4.1. weight of the engine, given the required thrust and specific fuel consumption
+
+# Assumptions
+# weight of each passenger: 82.2 kg (Source: "Review of Standard Passenger Weights EASA.2021.C24")
+# weight of luggage: 16 kg (Source: "Review of Standard Passenger Weights EASA.2021.C24")
+
+# weight per unit volume of aircraft: ~62kg/m^3
+# Weight of 737-200 is approx 54,249 kg empty, minus the propulsion weight of 8,177 kg, gives us 46,072 kg.
+# The volume of the 737-200 is approximately 750 m^3, giving us a weight per unit volume of approximately 61.43 kg/m^3.
