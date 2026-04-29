@@ -1,5 +1,4 @@
-\documentclass[12pt,a4paper]{article}
-
+\documentclass[10pt,a4paper]{article}
 \usepackage{amsmath,amssymb,amsfonts}
 \usepackage{graphicx}
 \usepackage{geometry}
@@ -37,56 +36,26 @@
 
 \title{%
     \textbf{Osculating-Cones Waverider Design Tool}\\[0.5em]
-    \large Comprehensive Methods Report\\[0.3em]
-    \normalsize Theory, Equations, Assumptions, and Implementation
+    \large Documentation of what is implemented so far
 }
 \author{Theo Rulko\\[0.3em]
         \small MIT AeroAstro}
 \date{\today}
 
 \begin{document}
-\maketitle
-\tableofcontents
-\newpage
+\maketitle%
+\tableofcontents%
+\newpage%
 
 % ===========================================================================
 \section{Introduction}
 \label{sec:intro}
 % ===========================================================================
 
-This report documents the hypersonic aerothermodynamics design tool located in
-\texttt{src/}.  The tool implements the \textbf{Osculating-Cones (OC) method} for
-generating waverider geometries at a prescribed design Mach number.
+This tool implements the \textbf{Osculating-Cones (OC) method} for generating waverider geometries at a prescribed design Mach number.
 
-A \emph{waverider} is a hypersonic lifting body whose lower surface exactly
-follows a stream surface of a known shock wave, so that the shock is
-\emph{attached} along the entire leading edge.  The shock wave is thereby
-``captured'' beneath the vehicle, generating high compression lift with minimal
-spillage---yielding a high lift-to-drag ratio at hypersonic speeds.
-
-The code base consists of seven Python modules:
-
-\begin{center}
-\begin{tabular}{ll}
-\toprule
-Module & Role \\
-\midrule
-\texttt{user\_input.py}         & Freestream and geometry parameters \\
-\texttt{oblique\_shock.py}      & Oblique-shock post-shock conditions\\
-\texttt{taylor\_maccoll\_sol.py}& Taylor-Maccoll ODE solver \\
-\texttt{TE\_Formation.py}       & Trailing-edge curve and base-plane visualisation \\
-\texttt{streamline\_tracing.py} & Leading-edge projection \& streamline integration \\
-\texttt{output\_CAE.py}         & Export curves to CAD/CAE text files \\
-\texttt{main.py}                & Top-level orchestration \\
-\bottomrule
-\end{tabular}
-\end{center}
-
-% ===========================================================================
-\section{Theoretical Background}
+\section{Background}
 \label{sec:theory}
-% ===========================================================================
-
 \subsection{Conical Shock Waves and the Flowfield}
 
 At the design Mach number $M_1$ the freestream encounters an axisymmetric
@@ -94,7 +63,19 @@ conical shock at half-angle $\beta$ (the \emph{shock semi-angle}).  Between the
 conical shock and the body cone the flow is described by the
 \textbf{Taylor-Maccoll} equations, which exploit the self-similar (conical)
 nature of the flowfield---all flow properties depend only on the polar angle
-$\theta$ measured from the cone axis.
+$\theta$ measured from the cone axis.\\
+
+\noindent\textbf{Assumptions}
+\begin{itemize}[leftmargin=*]
+    \item The shock is a \emph{perfect} conical shock (no 3-D effects on the
+          shock shape).
+    \item The gas is \emph{calorically perfect} (constant $\gamma = 1.4$), so
+          real-gas and dissociation effects are neglected.
+    \item The flowfield between shock and cone is \emph{isentropic} and
+          \emph{irrotational}---valid because the shock is conical and hence
+          of uniform strength.
+    \item The flow is \emph{steady} and \emph{axisymmetric}.
+\end{itemize}
 
 \subsection{Non-Dimensionalised Velocity}
 \label{sec:Vprime}
@@ -121,12 +102,8 @@ number through the energy equation:
 
 where $a$ is the local speed of sound and $M$ the local Mach number.
 
-% ===========================================================================
-\section{Oblique Shock Relations}
+\subsection{Oblique Shock Relations}
 \label{sec:oblique}
-% ===========================================================================
-
-\subsection{Governing Equations}
 
 For a planar oblique shock at wave angle $\beta$ with upstream Mach number
 $M_1$, the flow-deflection angle $\theta$ (theta) satisfies the
@@ -160,8 +137,7 @@ The total post-shock Mach number follows from the geometry of the shock:
     \label{eq:M2}
 \end{equation}
 
-\subsection{Initial Conditions for the Taylor-Maccoll ODE}
-
+\textbf{Initial Conditions for the Taylor-Maccoll ODE}
 At the shock surface ($\theta = \beta$), the post-shock non-dimensional velocity
 components in spherical coordinates $(r, \theta)$ are:
 
@@ -176,19 +152,8 @@ where $V'$ is computed from equation~(\ref{eq:Vprime}) evaluated at $M_2$.
 These form the initial value vector $\mathbf{S}_0 = (V'_{r,i},\,V'_{\theta,i})$
 for the ODE integration.
 
-\paragraph{Implementation.}
-Class \texttt{Oblique\_Shock} in \texttt{oblique\_shock.py}.
-Method \texttt{sub\_1} evaluates equations~(\ref{eq:theta_beta_M})--(\ref{eq:M2});
-method \texttt{initial\_nondimensioned\_conditions} evaluates
-equations~(\ref{eq:Vprime})--(\ref{eq:Vthetai}).
-
-% ===========================================================================
-\section{Taylor-Maccoll Conical Flow}
+\subsection{Taylor-Maccoll Conical Flow}
 \label{sec:TM}
-% ===========================================================================
-
-\subsection{Derivation and Governing ODE}
-
 For \emph{steady, irrotational, isentropic} flow about an axisymmetric cone
 with a self-similar (conical) structure, the velocity field in spherical
 coordinates $(r, \theta, \phi)$ reduces to $\mathbf{V} = V_r(\theta)\,\hat{r} +
@@ -226,8 +191,6 @@ This is split into the first-order system:
     \begin{pmatrix} A' \\ A'' \end{pmatrix}
 \end{equation}
 
-\subsection{Boundary Conditions and Integration Strategy}
-
 Integration proceeds \emph{inward} from the shock surface
 ($\theta = \beta$, where initial conditions are set by the oblique-shock
 solution) toward the cone axis ($\theta \to 0$).  The body cone is located at
@@ -243,44 +206,15 @@ parallel to the cone surface.  This zero crossing is the natural
 The integration interval is $[\beta,\; 10^{-8}]$ (nearly zero, to avoid the
 axis singularity).
 
-\subsection{Numerical Solution}
-
 The ODE is solved with \texttt{scipy.integrate.solve\_ivp} using the
 \textbf{Runge-Kutta 4(5) (RK45)} method with tight tolerances
 ($\mathrm{rtol} = 10^{-8}$, $\mathrm{atol} = 10^{-10}$) to capture the
 near-axis behaviour accurately.  The event~(\ref{eq:event}) is registered as a
 terminal event, halting integration once the cone surface is found.
 
-\paragraph{Design Mach number $M_1 = 8$, $\beta = 16.5^\circ$, $\gamma = 1.4$:}
-Post-shock $M_2 = 5.56$; body cone $\theta_c = 13.59^\circ$.
-
-\paragraph{Implementation.}
-Class \texttt{Taylor\_Maccoll} in \texttt{taylor\_maccoll\_sol.py}.
-Method \texttt{TM\_eqn} encodes equation~(\ref{eq:TM});
-\texttt{solver} performs the terminal-event integration;
-\texttt{solver1\_result\_visualize} prints and returns $\theta_c$;
-\texttt{tracing\_solver} re-integrates on a user-supplied \texttt{t\_eval}
-grid for the streamline-tracing step.
-
-\subsection{Assumptions}
-
-\begin{itemize}[leftmargin=*]
-    \item The shock is a \emph{perfect} conical shock (no 3-D effects on the
-          shock shape).
-    \item The gas is \emph{calorically perfect} (constant $\gamma = 1.4$), so
-          real-gas and dissociation effects are neglected.
-    \item The flowfield between shock and cone is \emph{isentropic} and
-          \emph{irrotational}---valid because the shock is conical and hence
-          of uniform strength.
-    \item The flow is \emph{steady} and \emph{axisymmetric}.
-\end{itemize}
-
 % ===========================================================================
-\section{Trailing-Edge Definition}
-\label{sec:TE}
-% ===========================================================================
-
-\subsection{Parametric Trailing-Edge Curve}
+\section{Geometry Determination}
+\subsection{Parametric Trailing-Edge Curve}\label{sec:TE}
 
 The trailing edge (TE) lies in the \emph{base plane} $x = L$ (where $L$ is
 the maximum axial length of the vehicle).  In the $(y, z)$ cross-section, the
@@ -292,7 +226,7 @@ TE is defined by a \textbf{quartic polynomial}:
 \end{equation}
 
 The coefficients $a$, $b$, $c$ are derived from three user-specified geometric
-constraints (see \texttt{user\_input.py}):
+constraints:
 
 \begin{align}
     R_1 &= 0.2\,R_s & &\text{(inboard semi-height at centreline)}\\
@@ -318,19 +252,8 @@ the curve meets the shock circle:
 
 This nonlinear equation is solved with \texttt{scipy.optimize.fsolve}.
 
-\paragraph{Implementation.}
-Class \texttt{TEG} (\texttt{TE\_Formation.py}).
-\texttt{te\_plot} constructs the TE curve and the break-point arrays used
-downstream; \texttt{baseplane\_visualize} overlays the conical shock circle and
-body-cone circle in the base plane.
-
-% ===========================================================================
-\section{Leading-Edge Projection onto the Shock Cone}
+\subsection{Leading-Edge Projection onto the Shock Cone}
 \label{sec:LE}
-% ===========================================================================
-
-\subsection{Projection Formula}
-
 The leading edge (LE) is obtained by projecting every point on the TE curve
 radially \emph{inward} along the shock cone surface.  For a point
 $(y, z) = (y_{\mathrm{TE}}, z_{\mathrm{TE}})$ in the base plane, the
@@ -347,17 +270,8 @@ $\rho = x\tan\beta$, the axial coordinate of the LE is:
 
 with $Y_{\mathrm{LE}} = y_{\mathrm{TE}}$ and $Z_{\mathrm{LE}} = z_{\mathrm{TE}}$.
 
-\paragraph{Implementation.}
-Method \texttt{projection\_module} of class \texttt{TRACE}
-(\texttt{streamline\_tracing.py}).
-
-% ===========================================================================
-\section{Streamline Tracing (Lower Surface Generation)}
+\subsection{Streamline Tracing (Lower Surface Generation)}
 \label{sec:streamline}
-% ===========================================================================
-
-\subsection{The Osculating-Cones Approximation}
-
 The full 3-D waverider lower surface is generated by tracing streamlines in
 the conical flowfield.  Because the shock is a cone, each streamline lies in
 an \textbf{osculating plane}---a half-plane emanating from the cone axis that
@@ -368,7 +282,6 @@ simply rotated in azimuth $\phi$ to span the full TE curve.  This is the
 Jones \textit{et al.},~1995).
 
 \subsection{Osculating-Plane Azimuth Angle}
-
 For the $k$-th LE seed point with Cartesian coordinates
 $(X_k, Y_k, Z_k)$ at the shock, the azimuthal (roll) angle of the
 osculating plane is:
@@ -379,7 +292,6 @@ osculating plane is:
 \end{equation}
 
 \subsection{Streamline ODE in Spherical Coordinates}
-
 A streamline in the conical flowfield satisfies:
 
 \begin{equation}
@@ -389,8 +301,6 @@ A streamline in the conical flowfield satisfies:
 
 where $V'_r(\theta)$ and $V'_\theta(\theta)$ are provided by the
 Taylor-Maccoll solution.
-
-\subsection{Euler Forward Integration}
 
 Equation~(\ref{eq:streamline}) is discretised with the explicit \textbf{Euler}
 method.  Starting from $(r_0, \theta_0)$ at the shock surface, successive
@@ -453,21 +363,13 @@ straight to the TE at constant $(y, z)$---a flat top that sees only the
 freestream.  This is consistent with the waverider design philosophy of
 generating lift only from the lower surface.
 
-\subsection{Lower-Surface Interpolation}
-
-The base-plane endpoints of all lower-surface streamlines are collected,
-extended symmetrically, and passed through a \textbf{B-spline interpolation}
-(\texttt{scipy.interpolate.splprep}/\texttt{splev}) to produce a smooth
-lower-surface base-plane curve.
-
 % ===========================================================================
-\section{Algorithm Summary}
+\section{Geometry Generation Algorithm Summary}
 \label{sec:algorithm}
 % ===========================================================================
 
 \begin{enumerate}[label=\textbf{Step \arabic*.}, leftmargin=*, itemsep=4pt]
-    \item \textbf{Input:} read $M_1$, $\gamma$, $\beta$, geometry constants
-          from \texttt{user\_input.py}.
+    \item \textbf{Input:} read $M_1$, $\gamma$, $\beta$, trailing edge description
     \item \textbf{Oblique shock:} solve equations~(\ref{eq:theta_beta_M})--(\ref{eq:M2})
           to obtain $M_2$, $\theta$; form initial conditions
           $(V'_{r,i}, V'_{\theta,i})$ via equations~(\ref{eq:Vri})--(\ref{eq:Vthetai}).
@@ -482,16 +384,188 @@ lower-surface base-plane curve.
     \item \textbf{Streamline tracing:} for each of $N_l$ seed points on the LE:
           \begin{enumerate}[label=\alph*.]
               \item compute osculating-plane azimuth $\phi$ (eq.~\ref{eq:phi}),
-              \item re-integrate Taylor-Maccoll on uniform $\theta$-grid
-                    (method \texttt{tracing\_solver}),
+              \item re-integrate Taylor-Maccoll on uniform $\theta$-grid,
               \item Euler-march equation~(\ref{eq:euler}) until base-plane crossing,
               \item interpolate exact intersection (eq.~\ref{eq:interp}),
               \item convert to Cartesian coordinates (eq.~\ref{eq:cart}).
           \end{enumerate}
     \item \textbf{B-spline:} fit smooth curve through base-plane endpoints.
     \item \textbf{Upper surface:} ruled lines from LE break points to TE.
-    \item \textbf{Output (optional):} write CAD/CAE text files.
 \end{enumerate}
+
+\section{Inviscid aerodynamic forces}
+\subsection{Upper surface}
+The upper surface of the waverider is a ruled flat top that sees only the undisturbed freestream. Thus, conditions at the boundary-layer edge are simply the freestream conditions:
+\begin{equation}
+    u_e = V_\infty,\quad
+    T_e = T_\infty,\quad
+    p_e = p_\infty,\quad
+    \rho_e = \rho_\infty,\quad
+    M_e = M_1.
+\end{equation}
+Therefore, the pressure coefficient over the upper surface is zero, and it contributes no pressure drag (but it will contribute to the viscous drag, which is calculated in the next section).
+
+\subsection{Lower surface}
+Because the lower surface is a stream surface of the Taylor--Maccoll cone, each streamline lies in an osculating plane and its boundary-layer-edge properties are functions of the polar angle $\theta$ from the cone axis. For each Cartesian point $(x,y,z)$ on a streamline we compute $\theta = \arctan\!\bigl(\sqrt{y^2+z^2}/x\bigr)$ and look up $V'(\theta)^2 = V'^2_r + V'^2_\theta$ from a single Taylor--Maccoll solution.  Total temperature and post-shock total pressure are constant in the conical region; this gives, with freestream $T_\infty$ and $p_\infty$:
+\begin{align}
+    T_0   &= T_\infty\!\left(1 + \tfrac{\gamma-1}{2}M_1^2\right), \quad
+    V_{\max} = \sqrt{2\gamma R T_0/(\gamma-1)},\\
+    u_e   &= V_{\max}\,V'(\theta), \qquad
+    T_e   = T_0\!\left(1 - V'^2(\theta)\right), \qquad
+    M_e   = u_e / \sqrt{\gamma R T_e},\\
+    p_e   &= p_{02}\,(1-V'^2(\theta))^{\gamma/(\gamma-1)}, \qquad
+    \rho_e = p_e/(R T_e),
+\end{align}
+where $p_{02}$ is the post-shock stagnation pressure.
+
+\section{Viscous shear (skin friction) calculation}
+To estimate viscous drag on the waverider surface, the laminar compressible integral boundary-layer method of Walz was used, following the implementation reported by Bowcutt in his viscous-optimized waverider design paper. We obtain the boundary layer edge conditions \(\{u_e, M_e, \rho_e, T_e\}\) from the external inviscid flow (Taylor--Macoll) and march the boundary layer downstream by solving a coupled pair of first-order ordinary differential equations along a streamline on the boundary-layer edge (the flow is assumed to be locally 2D). The model accounts for compressibility, wall-temperature effects, and streamwise pressure-gradient effects through the prescribed edge flow. It assumes a steady, continuum, laminar, thin, attached boundary layer with no flow separation or transition to turbulence. It assumes an isothermal wall at $T_w$; radiation equilibrium is not modelled.
+
+The two governing equations are the integral momentum equation and the integral mechanical-energy equation, where $s$ is a coordinate along the boundary-layer-edge streamline, and $y$ is the coordinate normal to the surface:
+\begin{gather}
+    \frac{\mathrm{d}Z}{\mathrm{d}s}
+    + \frac{1}{u_e}\frac{\mathrm{d}u_e}{\mathrm{d}s}\,F_1\,Z
+    - F_2 = 0,\qquad
+    \frac{\mathrm{d}W}{\mathrm{d}s}
+    + \frac{1}{u_e}\frac{\mathrm{d}u_e}{\mathrm{d}s}\,F_3\,W
+    - \frac{F_4}{Z} = 0,
+\end{gather}
+where $Z,W$ and the boundary layer thicknesses $\delta_i$ are defined as:
+\begin{gather}
+    Z = \delta_2\left(\frac{\rho_e u_e \delta_2}{\mu_w}\right)
+    = \frac{\rho_e u_e \delta_2^2}{\mu_w},\qquad
+    W = \frac{\delta_3}{\delta_2},\\[4pt]
+    \delta_1 = \int_0^\delta
+    \left(1-\frac{\rho u}{\rho_e u_e}\right)\,\mathrm{d}y,\qquad
+    \delta_2 = \int_0^\delta
+    \frac{\rho u}{\rho_e u_e}
+    \left(1-\frac{u}{u_e}\right)\,\mathrm{d}y,\qquad
+    \delta_3 = \int_0^\delta
+    \frac{\rho u}{\rho_e u_e}
+    \left(1-\frac{u^2}{u_e^2}\right)\,\mathrm{d}y,
+\end{gather}
+were ${(\cdot)}_w$ denotes evaluation at the wall. The closures in these equations (copied from the textbook) are:
+\begin{gather}
+    F_1 = 3 + 2H - M_e^2
+    + n\,
+    \frac{\dfrac{1}{\mu_w}\dfrac{\mathrm{d}\mu_w}{\mathrm{d}s}}
+        {\dfrac{1}{u_e}\dfrac{\mathrm{d}u_e}{\mathrm{d}s}},
+    \qquad
+    n =
+    \begin{cases}
+    0, & T_w = \text{constant},\\
+    1, & T_w \neq \text{constant},
+    \end{cases}\\[6pt]
+    F_2 = \frac{2a}{b},\qquad
+    F_3 = 1 - H + r(\gamma-1)M_e^2\left(1-\frac{\widetilde{\theta}}{W}\right),\qquad
+    F_4 = \frac{2\beta - aW}{b},
+\end{gather}
+and
+\begin{gather}
+    H = \frac{\delta_1}{\delta_2}
+    = b\,H_{12}
+    + r\,\frac{\gamma-1}{2}\,M_e^2\left(W-\widetilde{\theta}\right),\\[4pt]
+    a = 1.7261\left(W^\ast - 1.515\right)^{0.7158},\qquad
+    b = \frac{\delta_2^{(u)}}{\delta_2}
+    = 1 + r\,\frac{\gamma-1}{2}\,M_e^2
+    \left(W-\widetilde{\theta}\right)\left(2-W\right),\\[4pt]
+    r = \sqrt{\Pr},\qquad
+    \widetilde{\theta} =
+    \frac{T_{aw}(s)-T_w(s)}{T_{aw}(s)-T_e(s)},\qquad
+    \beta = \beta^{(u)}\,\chi,
+\end{gather}
+and
+\begin{gather}
+    H_{12} = 4.0306 - 4.2845\left(W^\ast - 1.515\right)^{0.3886},\qquad
+    T_{aw} = T_e + \frac{r\,u_e^2}{2c_p},\quad
+    W^\ast = \frac{\delta_3^{(u)}}{\delta_2^{(u)}} = \frac{W}{\psi},\label{eqn:W}\\[4pt]
+    \psi = 1 + \frac{(\psi_{12}-1)M_e^2}
+    {M_e^2 + \psi_{12}^{-1}/\psi_0},\qquad
+    \psi_{12} =
+    \frac{2-\delta_1^{(u)}/\delta}{W^\ast}\,\widetilde{\theta}
+    +
+    \frac{1-\delta_1^{(u)}/\delta}{W^\ast g}\,(1-\widetilde{\theta}),\\[4pt]
+    \psi_0 = 0.0144\,(2-W^\ast)\,(2-\widetilde{\theta})^{0.8},\qquad
+    \frac{\delta_1^{(u)}}{\delta}
+    = 0.420 - \left(W^\ast - 1.515\right)^{0.424\,W^\ast},\\[4pt]
+    g = 0.324 + 0.336\left(W^\ast - 1.515\right)^{0.555},\qquad
+    \beta^{(u)} = 0.1564 + 2.1921\left(W^\ast - 1.515\right)^{1.70},\\[4pt]
+    \chi =\left\{
+    1 + r\,\frac{\gamma-1}{2}\,M_e^2
+    \left[
+    1.16\,W^\ast - 1.072 - \widetilde{\theta}(2W^\ast - 2.581)
+    \right]
+    \right\}^{0.7}
+    \left\{
+    1 + r\,\frac{\gamma-1}{2}\,M_e^2(1-\widetilde{\theta})
+    \right\}^{-0.7}.
+\end{gather}
+Wall viscosity $\mu_w(T_w)$ is given by Sutherland's law,
+\begin{gather}
+    \mu(T) = \mu_0\!\left(\frac{T}{T_0^{\mu}}\right)^{3/2}
+              \frac{T_0^{\mu} + S}{T+S},
+    \quad \mu_0 = 1.716\!\times\!10^{-5}\ \mathrm{Pa\,s},\
+    T_0^{\mu}=273.15\ \mathrm{K},\ S=110.4\ \mathrm{K}.
+\end{gather}
+
+\subsection{Implementation}
+\subsubsection*{Initial conditions and self-similar start}
+At the leading edge $s=0$ the boundary layer has zero thickness, so
+$Z\to 0$ is singular for the $W$-equation.  We start the integration at a
+small $s_0>0$ from the local self-similar (zero pressure-gradient) state.
+Setting $\mathrm{d}W/\mathrm{d}s=0$ in the $W$-equation with
+$\mathrm{d}u_e/\mathrm{d}s=0$ gives the algebraic fixed point
+$W = 2\beta/a$.  With Eq.~\eqref{eqn:W} this is iterated together with the
+$W\!\leftrightarrow\!W^\ast$ inversion until self-consistent (the
+incompressible Blasius value $W^\ast \approx 1.572$ is used as the seed).
+The matching $Z$ is then $Z(s_0) = (2a/b)\,s_0$, which is the linear Blasius-like growth.
+
+\subsubsection*{Numerical solution}
+For each streamline the integration uses the following pipeline:
+\begin{enumerate}[leftmargin=*]
+  \item Sample the streamline to a uniform grid in arc length $s$.
+  \item Tabulate $\bigl(u_e,T_e,M_e,\rho_e,\mu_w,\widetilde{\theta}\bigr)$
+        at each station; build linear interpolants to evaluate them
+        between stations.
+  \item Integrate the coupled system $\bigl(Z(s),W(s)\bigr)$ with
+        \texttt{scipy.integrate.solve\_ivp}, RK45,
+        $\mathrm{rtol}=10^{-7}$, $\mathrm{atol}=10^{-10}$.
+  \item At every RHS evaluation, given the current compressible $W$ and
+        the local edge state, solve the implicit relation \eqref{eqn:W}
+        $W = W^\ast\,\psi(W^\ast)$ for $W^\ast$ with
+        \texttt{scipy.optimize.brentq} on
+        $W^\ast \in (1.515,\,1.99)$, then evaluate
+        $a,\,b,\,H_{12},\,H,\,\beta^{(u)},\,\chi,\,\beta$ and the four
+        coefficients $F_1,F_2,F_3,F_4$.
+\end{enumerate}
+The momentum thickness, wall shear, and skin-friction coefficient are
+recovered post-integration by:
+\begin{equation}
+    \delta_2 = \sqrt{\frac{Z\,\mu_w}{\rho_e u_e}},\qquad
+    \tau_w   = \frac{a\,\mu_w u_e}{\delta_2},\qquad
+    c_f      = \frac{2\tau_w}{\rho_e u_e^2}.
+    \label{eq:tauw}
+\end{equation}
+
+\subsubsection*{Skin-friction drag integration}
+On both surfaces, each streamline represents a strip of the wetted surface; strip width $w(s)$ is approximated by the half-distance to each neighbouring streamline at the same fractional arc length (with a single-neighbour doubling at the outermost streamlines).  The streamwise friction force on the strip is
+\begin{equation}
+    F_{x,k} \;=\; \int_0^{s_{\mathrm{TE}}}
+        \tau_w(s)\,\bigl(\mathrm{d}x/\mathrm{d}s\bigr)\,w(s)\,\mathrm{d}s,
+\end{equation}
+evaluated by the trapezoidal rule.  The total friction-drag coefficient sums the contributions from both surfaces, each doubled to account for the mirrored half:
+\begin{equation}
+    C_{D_f}
+    \;=\; \frac{2}{q_\infty S_{\mathrm{ref}}}
+    \!\left(
+        \sum_{k=1}^{N_l} F_{x,k}^{\mathrm{lower}}
+      + \sum_{k=1}^{N_{up}} F_{x,k}^{\mathrm{upper}}
+    \right),
+    \qquad
+    C_{D_f} = C_{D_f}^{\mathrm{lower}} + C_{D_f}^{\mathrm{upper}},
+\end{equation}
+with $S_{\mathrm{ref}}$ the planform projection of the lower surface.
+
 
 % ===========================================================================
 \section{References}

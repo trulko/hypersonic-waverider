@@ -82,7 +82,7 @@ def compute_pressure(geom, lower_mesh):
     }
 
 
-def compute_forces(geom, lower_mesh):
+def compute_inviscid_forces(geom, lower_mesh):
     """Return inviscid force coefficients using the lower-surface pressure."""
     pressure = compute_pressure(geom, lower_mesh)
     Cp = pressure["Cp"]

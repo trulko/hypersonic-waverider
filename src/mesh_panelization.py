@@ -239,10 +239,8 @@ def plot_scalar_field(lower_mesh, lower_field,
         if upper_field.shape[0] != upper_mesh["triangles"].shape[0]:
             raise ValueError("upper_field must match number of triangles")
 
-    if lower_alpha is None:
-        lower_alpha = 0.8 if (upper_mesh is not None and upper_field is not None) else 1.0
-    if upper_alpha is None:
-        upper_alpha = 0.8
+    if lower_alpha is None: lower_alpha = 1.0
+    if upper_alpha is None: upper_alpha = 1.0
 
     if not (0.0 <= lower_alpha <= 1.0):
         raise ValueError("lower_alpha must be between 0 and 1")
@@ -288,7 +286,7 @@ def plot_scalar_field(lower_mesh, lower_field,
 
     mappable = cm.ScalarMappable(norm=norm, cmap=cmap_obj)
     mappable.set_array(lower_field)
-    cbar = fig.colorbar(mappable, ax=ax, shrink=0.75, pad=0.05)
+    cbar = fig.colorbar(mappable, ax=ax, shrink=0.75, pad=0.15)
     cbar.set_label(colorbar_label)
 
     if save_path:
