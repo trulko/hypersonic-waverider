@@ -16,13 +16,15 @@ print("Making Waverider geometry...")
 # Note: to play with the upper trailing edge parameters, see:
 # https://www.desmos.com/calculator/ertbddykms
 wv = Waverider(
-    M1 = 6,
-    gamma = 1.4,
-    beta = 16.5,
-    L = 20, # m
-    R1_frac = 0.2,
-    W2_frac = 0.8,
-    n_shape = 1.0,
+    M1 = 6,         # Freestream Mach number
+    gamma = 1.4,    # Ratio of specific heats
+    beta = 16.5,    # Input: shock angle [degrees]
+    L = 20,         # Input: length [m]
+    R1_frac = 0.43, # Input: roughly controls height
+    W2_frac = 0.8,  # Input: roughly controls width
+    n_shape = 1.08, # Input: roughly controls roundness
+    N = 500,        # Resolution of the leading edge
+    N_l = 30,       # Resulution of the upper, lower surfaces
 )
 
 print("Analyzing aerothermodynamics...")
@@ -32,16 +34,16 @@ wv.aerothermodynamics(
     T_allow = 2500.0, # K   (refractory composite limit)
     emissivity = 0.9, # [-] (typical for high-temp composites)
     safety_factor = 1.5, # [-] (safety factor for the bluntness sizing)
-    resample=200, # per-streamline resampling resolution for the boundary layer integration
-    n_theta=20, # number of polar angle samples for Taylor--Maccoll
+    resample = 200,   # per-streamline resampling resolution for the boundary layer integration
+    n_theta = 20,     # number of polar angle samples for Taylor--Maccoll
 )
 
 # Plotting requires pyvista to be installed
-output_dir = "demo"
+output_dir = "../runs/demo/"
 wv.plot(output_dir)
 
 # Print
 wv.report()
 
 # Uncomment to show an interactive 3D plot of the geometry
-# wv.interactive()
+wv.interactive()

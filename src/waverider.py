@@ -79,7 +79,7 @@ class Waverider:
         self.L       = L
         self.N       = N
         self.N_l     = N_l
-        self.N_up    = int(np.floor(N_l / 2))
+        self.N_up    = N_l
         self.R1_frac = R1_frac
         self.W2_frac = W2_frac
         self.n_shape = n_shape
@@ -271,9 +271,7 @@ class Waverider:
         if self.inviscid_forces is None:
             raise RuntimeError(
                 "Call aerothermodynamics(...) before plot().")
-
-        plot_dir = os.path.join(output_dir, "plots")
-        os.makedirs(plot_dir, exist_ok=True)
+        os.makedirs(output_dir, exist_ok=True)
         print(f"Writing plots...")
 
         sc = self.geometry["shock_conditions"]
@@ -287,7 +285,7 @@ class Waverider:
         self.teg.plot_baseplane(
             self._z_func, self._Rs, self.L, self.N,
             beta_rad, Vr_i, V_theta_i,
-            save_path=os.path.join(plot_dir, "baseplane.png"),
+            save_path=os.path.join(output_dir, "baseplane.png"),
         )
 
         # 3-D geometry / streamline plot
@@ -296,17 +294,13 @@ class Waverider:
             self.geometry,
             self._X_p, self._Y_p, self._Z_p,
             X_b, self._Y_p, self._Z_p,
-            save_path=os.path.join(plot_dir, "streamlines.png"),
+            save_path=os.path.join(output_dir, "streamlines.png"),
         )
 
         # Geometry view grids (shaded + wireframe)
         plot_geometry_views_pv(
             lower_mesh, upper_mesh, style="shaded",
-            save_path=os.path.join(plot_dir, "geometry_views.png"),
-        )
-        plot_geometry_views_pv(
-            lower_mesh, upper_mesh, style="wireframe",
-            save_path=os.path.join(plot_dir, "geometry_views_2.png"),
+            save_path=os.path.join(output_dir, "geometry_views.png"),
         )
 
         # Pressure coefficient
@@ -319,7 +313,7 @@ class Waverider:
             colorbar_label="Cp",
             upper_alpha=0.3,
             vmin=0.089,
-            save_path=os.path.join(plot_dir, "pressure_cp.png"),
+            save_path=os.path.join(output_dir, "pressure_cp.png"),
         )
 
         # Skin friction coefficient
@@ -335,7 +329,7 @@ class Waverider:
             colorbar_label="log(c_f)",
             vmin=float(np.log10(cf_all.min())),
             vmax=float(np.percentile(np.log10(cf_all), 98)),
-            save_path=os.path.join(plot_dir, "skin_friction_cf.png"),
+            save_path=os.path.join(output_dir, "skin_friction_cf.png"),
         )
 
         # Momentum boundary-layer thickness
@@ -348,23 +342,23 @@ class Waverider:
             upper_mesh=upper_mesh, upper_field=d2_up * 1e3,
             cmap="viridis",
             colorbar_label="delta_2 [mm]",
-            save_path=os.path.join(plot_dir, "momentum_thickness.png"),
+            save_path=os.path.join(output_dir, "momentum_thickness.png"),
         )
 
         # Flowfield Mach contours on cutting planes
         plot_flowfield_slices_pv(
             self.geometry, lower_mesh, upper_mesh,
             field="mach", cmap="Blues",
-            save_path=os.path.join(plot_dir, "flowfield_mach.png"),
+            save_path=os.path.join(output_dir, "flowfield_mach.png"),
         )
 
         # Flowfield Temperature contours on cutting planes
         plot_flowfield_slices_pv(
             self.geometry, lower_mesh, upper_mesh,
             field="temperature", cmap="Reds",
-            save_path=os.path.join(plot_dir, "flowfield_temperature.png"),
+            save_path=os.path.join(output_dir, "flowfield_temperature.png"),
         )
-        print(f"All plots saved to {plot_dir}")
+        print(f"All plots saved to {output_dir}")
 
     # -----------------------------------------------------------
     def interactive(self) -> None:
