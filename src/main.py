@@ -19,6 +19,7 @@ wv = Waverider(
     M1 = 6,           # Freestream Mach number
     gamma = 1.4,      # Ratio of specific heats
     min_height = 3,   # [m]
+    min_area = 100,   # [m^2]
     min_volume = 250, # [m^3]
     beta = 16.5,      # Input: shock angle [degrees]
     R1_frac = 0.43,   # Input: roughly controls height

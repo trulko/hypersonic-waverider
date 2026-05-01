@@ -33,6 +33,7 @@ def main() -> None:
             gamma = 1.4,
             beta = 17,
             min_height = 3,   # [m]
+            min_area = 100,   # [m^2]
             min_volume = 250, # [m^3]
             N = 300,
             N_l = 25,

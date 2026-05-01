@@ -69,6 +69,7 @@ class Waverider:
                  beta: float,
                  min_volume: float,
                  min_height: float,
+                 min_area: float,
                  N: int = 500,
                  N_l: int = 50,
                  R1_frac: float = 0.2,
@@ -84,7 +85,7 @@ class Waverider:
         self.W2_frac = W2_frac
         self.n_shape = n_shape
 
-        self.L        = self._get_minimum_length(min_volume, min_height)
+        self.L        = self._get_minimum_length(min_volume, min_area, min_height)
         self.geometry = self._build_geometry(self.L)
         self.panel    = Panelization(self.geometry)
 
@@ -101,21 +102,23 @@ class Waverider:
         self.CL_total = self.CD_total = self.LD_total = None
 
     # -----------------------------------------------------------
-    def _get_minimum_length(self, target_volume, target_height) -> float:
+    def _get_minimum_length(self, target_volume, target_area, target_height) -> float:
         """
-        Determines the required length L to meet minimum volume and height constraints.
+        Determines the required length L to meet minimum volume, area, and height constraints.
         """
         # 1. Instantiate a "Unit" Waverider (L = 1.0)
         unit_geometry = self._build_geometry(1.0)
         unit_panel = Panelization(unit_geometry)
         unit_volume = unit_panel.volume
         unit_height = unit_panel.height
-        
+        unit_area = unit_panel.wetted_area
+
         # 2. Apply Scaling Laws
         L_req_vol = (target_volume / unit_volume) ** (1.0 / 3.0)
+        L_req_area = (target_area / unit_area) ** (1.0 / 2.0)
         L_req_height = (target_height / unit_height)
-        L_final = max(L_req_vol, L_req_height)
-        
+        L_final = max(L_req_vol, L_req_height, L_req_area)
+
         return L_final
 
     # -----------------------------------------------------------
