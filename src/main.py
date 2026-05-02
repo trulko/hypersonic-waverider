@@ -47,8 +47,15 @@ def build_waverider() -> Waverider:
     # Choose the waverider
     wv = wv_viscous
 
-    wv.aerothermodynamics()
-
+    wv.aerothermodynamics(
+        T_inf = 216.65,   # K   (~20 km standard atmosphere)
+        p_inf = 5474.9,   # Pa  (~20 km standard atmosphere)
+        T_allow = 2500.0, # K   (refractory composite limit)
+        emissivity = 0.9, # [-] (typical for high-temp composites)
+        safety_factor = 1.5, # [-] (safety factor for the bluntness sizing)
+        resample = 200,   # per-streamline resampling resolution for the boundary layer integration
+        n_theta = 20,     # number of polar angle samples for Taylor-Maccoll)
+    )
     return wv
 
 def main() -> None:
