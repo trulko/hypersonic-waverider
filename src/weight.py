@@ -51,7 +51,7 @@ def estimate_aircraft_weight(
     volume_m3: float,
     powerplant_mass_kg: float,
     fuel_mass_kg: float = 0.0,
-    passenger_count: int = PASSENGER_COUNT,
+    passenger_count: int = 100,
     airframe_mass_per_volume_kg_m3: float = AIRFRAME_MASS_PER_VOLUME_KG_M3,
 ) -> WeightEstimate:
     """Estimate aircraft mass and weight from vehicle volume.

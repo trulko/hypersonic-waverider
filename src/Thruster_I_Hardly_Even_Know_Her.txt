@@ -1,0 +1,22 @@
+# This is the readme for how we calculate the thrust required.
+
+Implementation:
+- Thruster_I_Hardly_Even_Know_Her.py
+- Main function: Thruster_I_Hardly_Even_Know_Her(...)
+
+Model:
+Required thrust is set equal to drag for steady, level cruise:
+
+    T_required = D = 0.5 * rho * V^2 * S_ref * CD
+
+Defaults:
+- CD and S_ref are pulled from main.py by building the current baseline
+  waverider and reading CD_total plus the inviscid-force planform area.
+- Density and temperature are pulled from route_visualization output,
+  preferably runs/route_visualization/data/spine_curve.csv. If that file is
+  missing, the route_visualization functions are called directly.
+- Velocity is treated as one average Mach 6 cruise speed, using the mean route
+  temperature to compute speed of sound.
+
+Convenience alias:
+- calculate_required_thrust = Thruster_I_Hardly_Even_Know_Her
