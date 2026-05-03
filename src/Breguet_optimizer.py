@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -55,6 +56,19 @@ class ViableOptionSummary:
     takeoff_mass_kg: float
 
 
+@dataclass(frozen=True)
+class FuelScreeningSummary:
+    fuel: FuelOption
+    best_engine_count: int | None
+    best_specific_impulse_s: float | None
+    best_fuel_mass_kg: float | None
+    best_fuel_volume_m3: float | None
+    best_fuel_fraction: float | None
+    best_takeoff_mass_kg: float | None
+    thrust_feasible_engine_counts: tuple[int, ...]
+    has_volume_feasible_case: bool
+
+
 FUEL_OPTIONS = (
     FuelOption("JP-7", 803.0, 1000.0, 2500.0),
     FuelOption("liquid methane", 422.0, 1000.0, 2800.0),
@@ -92,14 +106,14 @@ def isp_samples(fuel: FuelOption, sample_count: int = ISP_SAMPLE_COUNT) -> list[
     return [fuel.min_isp_s + step * idx for idx in range(sample_count)]
 
 
-def optimize_breguet_inputs(
+def sweep_breguet_cases(
     *,
     volume_m3: float,
     lift_to_drag: float,
     required_thrust_N: float,
-) -> tuple[BreguetOptimizationCase | None, list[BreguetOptimizationCase]]:
-    """Sweep fuel, engine count, and ISP and return the lightest feasible case."""
-    feasible_cases = []
+) -> list[BreguetOptimizationCase]:
+    """Return all thrust-feasible discrete optimizer cases before volume screening."""
+    swept_cases = []
     required_thrust_with_margin_N = required_thrust_N * THRUST_MARGIN
 
     for fuel in FUEL_OPTIONS:
@@ -126,10 +140,7 @@ def optimize_breguet_inputs(
                     fuel.density_kg_m3,
                 )
                 fuel_fraction = fuel_volume_m3 / volume_m3
-                if fuel_fraction > ALLOWED_FUEL_FRACTION:
-                    continue
-
-                feasible_cases.append(
+                swept_cases.append(
                     BreguetOptimizationCase(
                         fuel=fuel,
                         engine_count=engine_count,
@@ -143,6 +154,26 @@ def optimize_breguet_inputs(
                         estimate=estimate,
                     )
                 )
+
+    return swept_cases
+
+
+def optimize_breguet_inputs(
+    *,
+    volume_m3: float,
+    lift_to_drag: float,
+    required_thrust_N: float,
+) -> tuple[BreguetOptimizationCase | None, list[BreguetOptimizationCase]]:
+    """Sweep fuel, engine count, and ISP and return the lightest feasible case."""
+    swept_cases = sweep_breguet_cases(
+        volume_m3=volume_m3,
+        lift_to_drag=lift_to_drag,
+        required_thrust_N=required_thrust_N,
+    )
+    feasible_cases = [
+        case for case in swept_cases
+        if case.fuel_fraction <= ALLOWED_FUEL_FRACTION
+    ]
 
     best_case = min(
         feasible_cases,
@@ -239,6 +270,76 @@ def summarize_viable_options(feasible_cases: list[BreguetOptimizationCase]) -> l
     return sorted(option_summaries, key=lambda item: (item.fuel.name, item.specific_impulse_s, item.engine_counts))
 
 
+def summarize_fuel_screening(
+    *,
+    volume_m3: float,
+    lift_to_drag: float,
+    required_thrust_N: float,
+) -> list[FuelScreeningSummary]:
+    """Summarize the best thrust-feasible case for each fuel option."""
+    swept_cases = sweep_breguet_cases(
+        volume_m3=volume_m3,
+        lift_to_drag=lift_to_drag,
+        required_thrust_N=required_thrust_N,
+    )
+    screening_summaries = []
+
+    for fuel in FUEL_OPTIONS:
+        fuel_cases = [case for case in swept_cases if case.fuel.name == fuel.name]
+        thrust_feasible_engine_counts = tuple(
+            sorted({case.engine_count for case in fuel_cases})
+        )
+        best_case: tuple[float, int, float, float, float, float] | None = None
+        has_volume_feasible_case = False
+
+        for case in fuel_cases:
+            if case.fuel_fraction <= ALLOWED_FUEL_FRACTION:
+                has_volume_feasible_case = True
+
+            candidate = (
+                case.fuel_fraction,
+                case.engine_count,
+                case.specific_impulse_s,
+                case.estimate.fuel_mass_kg,
+                case.fuel_volume_m3,
+                case.estimate.takeoff_estimate.total_mass_kg,
+            )
+            if best_case is None or candidate[0] < best_case[0]:
+                best_case = candidate
+
+        if best_case is None:
+            screening_summaries.append(
+                FuelScreeningSummary(
+                    fuel=fuel,
+                    best_engine_count=None,
+                    best_specific_impulse_s=None,
+                    best_fuel_mass_kg=None,
+                    best_fuel_volume_m3=None,
+                    best_fuel_fraction=None,
+                    best_takeoff_mass_kg=None,
+                    thrust_feasible_engine_counts=thrust_feasible_engine_counts,
+                    has_volume_feasible_case=False,
+                )
+            )
+            continue
+
+        screening_summaries.append(
+            FuelScreeningSummary(
+                fuel=fuel,
+                best_engine_count=best_case[1],
+                best_specific_impulse_s=best_case[2],
+                best_fuel_mass_kg=best_case[3],
+                best_fuel_volume_m3=best_case[4],
+                best_fuel_fraction=best_case[0],
+                best_takeoff_mass_kg=best_case[5],
+                thrust_feasible_engine_counts=thrust_feasible_engine_counts,
+                has_volume_feasible_case=has_volume_feasible_case,
+            )
+        )
+
+    return screening_summaries
+
+
 def save_feasible_cases_csv(feasible_cases: list[BreguetOptimizationCase], save_path: str | Path) -> Path:
     """Write the feasible optimizer cases to CSV for downstream analysis."""
     output_path = Path(save_path)
@@ -288,11 +389,12 @@ def save_feasible_cases_csv(feasible_cases: list[BreguetOptimizationCase], save_
 
 
 def plot_feasible_cases(
+    swept_cases: list[BreguetOptimizationCase],
     feasible_cases: list[BreguetOptimizationCase],
     best_case: BreguetOptimizationCase | None,
     save_path: str | Path,
 ) -> Path:
-    """Save a fuel-by-fuel map of feasible optimizer cases."""
+    """Save a fuel-by-fuel map of viable and non-viable optimizer cases."""
     import os
 
     repo_root = Path(__file__).resolve().parent.parent
@@ -304,7 +406,7 @@ def plot_feasible_cases(
     output_path = Path(save_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    figure, axes = plt.subplots(1, len(FUEL_OPTIONS), figsize=(15.5, 4.8), constrained_layout=True)
+    figure, axes = plt.subplots(1, len(FUEL_OPTIONS), figsize=(16.4, 5.8), constrained_layout=True)
     if len(FUEL_OPTIONS) == 1:
         axes = [axes]
 
@@ -313,22 +415,43 @@ def plot_feasible_cases(
     scatter_artist = None
 
     for axis, fuel in zip(axes, FUEL_OPTIONS):
-        fuel_cases = [
+        fuel_feasible_cases = [
             case for case in feasible_cases if case.fuel.name == fuel.name
         ]
+        fuel_swept_cases = [
+            case for case in swept_cases if case.fuel.name == fuel.name
+        ]
+        fuel_non_viable_cases = [
+            case for case in fuel_swept_cases
+            if case.fuel_fraction > ALLOWED_FUEL_FRACTION
+        ]
 
-        axis.set_title(f"{fuel.name}\n{len(fuel_cases)} feasible case(s)")
+        axis.set_title(
+            f"{fuel.name}\n{len(fuel_feasible_cases)} feasible, {len(fuel_non_viable_cases)} not viable"
+        )
         axis.set_xlabel("Engine count")
         axis.set_xticks(ENGINE_COUNT_OPTIONS)
         axis.set_xlim(min(ENGINE_COUNT_OPTIONS) - 0.8, max(ENGINE_COUNT_OPTIONS) + 0.8)
         axis.set_ylim(fuel.min_isp_s - 50.0, fuel.max_isp_s + 50.0)
         axis.grid(True, linestyle="--", alpha=0.35)
 
-        if fuel_cases:
+        if fuel_non_viable_cases:
+            axis.scatter(
+                [case.engine_count for case in fuel_non_viable_cases],
+                [case.specific_impulse_s for case in fuel_non_viable_cases],
+                marker="x",
+                s=46.0,
+                color="#8d99ae",
+                linewidths=1.2,
+                alpha=0.85,
+                zorder=2,
+            )
+
+        if fuel_feasible_cases:
             scatter_artist = axis.scatter(
-                [case.engine_count for case in fuel_cases],
-                [case.specific_impulse_s for case in fuel_cases],
-                c=[case.estimate.takeoff_estimate.total_mass_kg for case in fuel_cases],
+                [case.engine_count for case in fuel_feasible_cases],
+                [case.specific_impulse_s for case in fuel_feasible_cases],
+                c=[case.estimate.takeoff_estimate.total_mass_kg for case in fuel_feasible_cases],
                 cmap="viridis_r",
                 norm=normalize,
                 s=140.0,
@@ -336,16 +459,33 @@ def plot_feasible_cases(
                 linewidths=0.7,
                 zorder=3,
             )
-        else:
+        elif not fuel_non_viable_cases:
             axis.text(
                 0.5,
                 0.5,
-                "No feasible\ncases",
+                "No thrust-feasible\ncases",
                 transform=axis.transAxes,
                 ha="center",
                 va="center",
                 fontsize=12,
                 color="#6c757d",
+            )
+        else:
+            axis.text(
+                0.5,
+                0.08,
+                "All shown cases are\nnot viable",
+                transform=axis.transAxes,
+                ha="center",
+                va="bottom",
+                fontsize=10,
+                color="#6c757d",
+                bbox={
+                    "boxstyle": "round,pad=0.25",
+                    "facecolor": "white",
+                    "edgecolor": "none",
+                    "alpha": 0.8,
+                },
             )
 
         if best_case is not None and best_case.fuel.name == fuel.name:
@@ -371,9 +511,10 @@ def plot_feasible_cases(
 
     axes[0].set_ylabel("Specific impulse, $I_{sp}$ [s]")
     figure.suptitle(
-        "Breguet optimizer viable design space",
+        "Breguet optimizer design space",
         fontsize=14,
         fontweight="bold",
+        y=1.02,
     )
 
     if scatter_artist is not None:
@@ -420,12 +561,17 @@ def build_latex_summary(
     viable_fuels = sorted({case.fuel.name for case in feasible_cases})
     viable_fuel_text = ", ".join(latex_escape(fuel_name) for fuel_name in viable_fuels) if viable_fuels else "none"
     unique_options = summarize_viable_options(feasible_cases)
+    fuel_screening = summarize_fuel_screening(
+        volume_m3=volume_m3,
+        lift_to_drag=lift_to_drag,
+        required_thrust_N=required_thrust_N,
+    )
 
     lines = [
         r"\subsection{Breguet Optimizer Trade Study}",
         (
             "The discrete Breguet optimizer swept fuel type, engine count, and specific impulse "
-            f"for the fixed-geometry baseline ($V={volume_m3:.1f}\\,\\mathrm{{m^3}}$, "
+            f"for the fixed-geometry baseline ($V={volume_m3:.1f}\\,\\mathrm{{m}}^{{3}}$, "
             f"$L/D={lift_to_drag:.4f}$, and $T_\\mathrm{{req}}={required_thrust_N:,.1f}\\,\\mathrm{{N}}$). "
             f"The sweep covered {total_cases} total combinations with a fuel-volume cap of "
             f"{ALLOWED_FUEL_FRACTION * 100.0:.0f}\\%, a thrust margin of {THRUST_MARGIN:.2f}, and a per-engine "
@@ -442,8 +588,9 @@ def build_latex_summary(
         r"    \centering",
         f"    \\includegraphics[width=0.98\\linewidth]{{{plot_include_path}}}",
         (
-            r"    \caption{Viable Breguet optimizer cases by fuel option. Marker color denotes takeoff mass, "
-            r"and the red star marks the minimum-mass feasible case.}"
+            r"    \caption{Breguet optimizer cases by fuel option. Filled markers are viable cases, gray x markers "
+            r"are thrust-feasible but fail the fuel-volume limit, marker color denotes takeoff mass, and the red "
+            r"star marks the minimum-mass feasible case.}"
         ),
         r"    \label{fig:breguet-optimizer-viable-options}",
         r"\end{figure}",
@@ -496,7 +643,7 @@ def build_latex_summary(
             (
                 f"The minimum-mass feasible case used {latex_escape(best_case.fuel.name)} with "
                 f"$I_{{sp}}={best_case.specific_impulse_s:.0f}\\,\\mathrm{{s}}$ and {best_case.engine_count} engines. "
-                f"This case required {best_case.fuel_volume_m3:,.1f}\\,\\mathrm{{m^3}} of fuel "
+                f"This case required {best_case.fuel_volume_m3:,.1f}\\,\\mathrm{{m}}^{{3}} of fuel "
                 f"({best_case.fuel_fraction * 100.0:.2f}\\% of vehicle volume) and produced a takeoff mass of "
                 f"{best_case.estimate.takeoff_estimate.total_mass_kg:,.1f}\\,\\mathrm{{kg}}."
             ),
@@ -516,6 +663,67 @@ def build_latex_summary(
             ),
         ]
     )
+
+    infeasible_fuels = [
+        summary for summary in fuel_screening
+        if not summary.has_volume_feasible_case
+    ]
+    if infeasible_fuels:
+        lines.append("")
+        if any(summary.thrust_feasible_engine_counts for summary in infeasible_fuels):
+            engine_count_text = ", ".join(str(engine_count) for engine_count in infeasible_fuels[0].thrust_feasible_engine_counts)
+            lines.append(
+                "The non-viable fuels were screened out by the fuel-volume constraint rather than the thrust constraint. "
+                f"With the current thrust requirement, engine counts of {engine_count_text} all satisfy the "
+                "per-engine thrust limit after the 1.20 margin is applied."
+            )
+            lines.append("")
+
+        for summary in infeasible_fuels:
+            if (
+                summary.best_engine_count is None
+                or summary.best_specific_impulse_s is None
+                or summary.best_fuel_mass_kg is None
+                or summary.best_fuel_volume_m3 is None
+                or summary.best_fuel_fraction is None
+                or summary.best_takeoff_mass_kg is None
+            ):
+                continue
+
+            volume_delta_m3 = summary.best_fuel_volume_m3 - best_case.fuel_volume_m3
+            fraction_delta_percent = (
+                summary.best_fuel_fraction - best_case.fuel_fraction
+            ) * 100.0
+            mass_delta_kg = summary.best_takeoff_mass_kg - best_case.estimate.takeoff_estimate.total_mass_kg
+            mass_delta_text = (
+                f"{abs(mass_delta_kg):,.1f}\\,\\mathrm{{kg}} lighter"
+                if mass_delta_kg < 0.0
+                else f"{abs(mass_delta_kg):,.1f}\\,\\mathrm{{kg}} heavier"
+            )
+
+            lines.append(
+                (
+                    f"For {latex_escape(summary.fuel.name)}, even the best thrust-feasible case "
+                    f"({summary.best_engine_count} engines and $I_{{sp}}={summary.best_specific_impulse_s:.0f}\\,\\mathrm{{s}}$) "
+                    f"required {summary.best_fuel_mass_kg:,.1f}\\,\\mathrm{{kg}} of fuel, which corresponds to "
+                    f"{summary.best_fuel_volume_m3:,.1f}\\,\\mathrm{{m}}^{{3}} or {summary.best_fuel_fraction * 100.0:.2f}\\% "
+                    f"of vehicle volume. Relative to the best JP-7 case "
+                    f"({best_case.fuel_volume_m3:,.1f}\\,\\mathrm{{m}}^{{3}}, "
+                    f"{best_case.fuel_fraction * 100.0:.2f}\\%, "
+                    f"{best_case.estimate.takeoff_estimate.total_mass_kg:,.1f}\\,\\mathrm{{kg}} takeoff mass), "
+                    f"this option is {mass_delta_text} but requires {volume_delta_m3:,.1f}\\,\\mathrm{{m}}^{{3}} more fuel volume "
+                    f"and raises the fuel-volume fraction by {fraction_delta_percent:.2f} percentage points. "
+                    f"That extra volume pushes it beyond the {ALLOWED_FUEL_FRACTION * 100.0:.0f}\\% storage limit, "
+                    "so the option is rejected."
+                )
+            )
+            lines.append("")
+
+        lines.append(
+            "This comparison shows that the present trade study is volume-limited for cryogenic fuels: "
+            "higher specific impulse reduces fuel mass, but the lower fuel density overwhelms that benefit "
+            "once the storage-volume cap is enforced."
+        )
     return "\n".join(lines) + "\n"
 
 
@@ -525,3 +733,76 @@ def save_latex_summary(latex_summary: str, save_path: str | Path) -> Path:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(latex_summary, encoding="utf-8")
     return output_path
+
+
+def build_overleaf_document(summary_filename: str = "optimization-summary.tex") -> str:
+    """Return a minimal standalone LaTeX document for Overleaf uploads."""
+    lines = [
+        r"\documentclass[11pt]{article}",
+        r"\usepackage[T1]{fontenc}",
+        r"\usepackage{amsmath}",
+        r"\usepackage{graphicx}",
+        r"\usepackage[margin=1in]{geometry}",
+        r"\setlength{\parindent}{0pt}",
+        r"\setlength{\parskip}{0.6em}",
+        r"\begin{document}",
+        f"\\input{{{summary_filename}}}",
+        r"\end{document}",
+        "",
+    ]
+    return "\n".join(lines)
+
+
+def save_overleaf_bundle(
+    *,
+    latex_summary: str,
+    plot_source_path: str | Path,
+    csv_source_path: str | Path | None,
+    output_dir: str | Path,
+) -> dict[str, Path]:
+    """Save a standalone Overleaf-ready bundle with local asset paths."""
+    bundle_dir = Path(output_dir)
+    bundle_dir.mkdir(parents=True, exist_ok=True)
+
+    summary_path = save_latex_summary(latex_summary, bundle_dir / "optimization-summary.tex")
+    main_path = bundle_dir / "main.tex"
+    main_path.write_text(build_overleaf_document(summary_path.name), encoding="utf-8")
+
+    plot_source = Path(plot_source_path)
+    plot_path = bundle_dir / plot_source.name
+    shutil.copy2(plot_source, plot_path)
+
+    csv_path = None
+    if csv_source_path is not None:
+        csv_source = Path(csv_source_path)
+        csv_path = bundle_dir / csv_source.name
+        shutil.copy2(csv_source, csv_path)
+
+    readme_lines = [
+        "Overleaf bundle contents",
+        "=======================",
+        "",
+        "1. Upload the contents of this folder to Overleaf.",
+        "2. Set main.tex as the main document if Overleaf does not pick it automatically.",
+        "3. Compile with pdfLaTeX.",
+        "",
+        "Files:",
+        "- main.tex: standalone wrapper document",
+        "- optimization-summary.tex: body text for the trade-study writeup",
+        f"- {plot_path.name}: viable-options figure used by the writeup",
+    ]
+    if csv_path is not None:
+        readme_lines.append(f"- {csv_path.name}: feasible-case data table export")
+
+    readme_path = bundle_dir / "README.txt"
+    readme_path.write_text("\n".join(readme_lines) + "\n", encoding="utf-8")
+
+    bundle_paths = {
+        "main": main_path,
+        "summary": summary_path,
+        "plot": plot_path,
+        "readme": readme_path,
+    }
+    if csv_path is not None:
+        bundle_paths["csv"] = csv_path
+    return bundle_paths
