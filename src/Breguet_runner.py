@@ -2,13 +2,23 @@
 
 from __future__ import annotations
 
+import os
+from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+os.environ.setdefault("MPLCONFIGDIR", str(REPO_ROOT / ".mplconfig"))
+
 from Breguet import calculate_breguet_range_estimate
 from Breguet_optimizer import (
     X51A_FUEL_DENSITY_KG_M3,
     X51A_FUEL_VOLUME_M3,
+    build_latex_summary,
     estimate_fuel_storage_volume_m3,
     optimize_breguet_inputs,
+    plot_feasible_cases,
     print_optimization_summary,
+    save_feasible_cases_csv,
+    save_latex_summary,
 )
 from engine_sizing import estimate_engine_sizing
 from main import build_waverider
@@ -22,6 +32,7 @@ ASSUMED_ENGINE_COUNT = 2
 L_OVER_D_SOURCE = "main"
 THRUST_SOURCE = "hardcoded"
 RUN_OPTIMIZER = True
+OPTIMIZER_OUTPUT_DIR = REPO_ROOT / "runs" / "breguet-optimizer"
 
 
 def get_volume(waverider) -> tuple[float, str]:
@@ -55,6 +66,14 @@ def mass_fraction(component_mass_kg: float, total_mass_kg: float) -> float:
         raise ValueError("total_mass_kg must be positive.")
 
     return component_mass_kg / total_mass_kg
+
+
+def repo_relative_path(path: Path) -> str:
+    """Return a repository-relative path string when possible."""
+    try:
+        return path.relative_to(REPO_ROOT).as_posix()
+    except ValueError:
+        return path.as_posix()
 
 
 def main() -> None:
@@ -140,6 +159,34 @@ def main() -> None:
             required_thrust_N=required_thrust_N,
         )
         print_optimization_summary(best_case, len(feasible_cases))
+
+        plot_path = plot_feasible_cases(
+            feasible_cases,
+            best_case,
+            OPTIMIZER_OUTPUT_DIR / "viable-options.png",
+        )
+        csv_path = save_feasible_cases_csv(
+            feasible_cases,
+            OPTIMIZER_OUTPUT_DIR / "viable-options.csv",
+        )
+        latex_summary = build_latex_summary(
+            best_case,
+            feasible_cases,
+            volume_m3=volume_m3,
+            lift_to_drag=lift_to_drag,
+            required_thrust_N=required_thrust_N,
+            plot_include_path=repo_relative_path(plot_path),
+        )
+        tex_path = save_latex_summary(
+            latex_summary,
+            OPTIMIZER_OUTPUT_DIR / "optimization-summary.tex",
+        )
+
+        print("")
+        print("Optimizer Artifacts")
+        print(f"  Viable options plot      = {repo_relative_path(plot_path)}")
+        print(f"  Viable options CSV       = {repo_relative_path(csv_path)}")
+        print(f"  LaTeX summary            = {repo_relative_path(tex_path)}")
 
 
 if __name__ == "__main__":

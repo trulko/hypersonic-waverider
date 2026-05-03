@@ -15,13 +15,12 @@ intermediate places of interest are modeled as flyover regions. The script:
 4. Saves map, globe, density visualizations, and CSV outputs for later analysis.
 
 Run from the repository root:
-    .venv\Scripts\python.exe src\route_visualization.py
+    .\.venv\Scripts\python.exe src\route_visualization.py
 """
 
 from __future__ import annotations
 
 import csv
-import os
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
@@ -962,10 +961,10 @@ def write_spine_curve_csv(
 
 
 def main() -> None:
-    output_plot_dir = os.path.join("runs", "route_visualization", "plots")
-    output_data_dir = os.path.join("runs", "route_visualization", "data")
-    os.makedirs(output_plot_dir, exist_ok=True)
-    os.makedirs(output_data_dir, exist_ok=True)
+    output_plot_dir = REPO_ROOT / "runs" / "route_visualization" / "plots"
+    output_data_dir = REPO_ROOT / "runs" / "route_visualization" / "data"
+    output_plot_dir.mkdir(parents=True, exist_ok=True)
+    output_data_dir.mkdir(parents=True, exist_ok=True)
 
     centerline_points = [DEPARTURE] + [region_center_waypoint(region) for region in FLYOVER_REGIONS] + [DESTINATION]
     centerline_surface_km = cumulative_distance_km(centerline_points)
@@ -980,13 +979,13 @@ def main() -> None:
     _, cumulative_flight_km = cumulative_sampled_distances_km(spine_lat, spine_lon)
     density_kg_m3, temperature_k = evaluate_density_profile_nrlmsis(spine_lat, spine_lon)
 
-    map_path = os.path.join(output_plot_dir, "route_map.png")
-    globe_path = os.path.join(output_plot_dir, "route_globe.png")
-    ortho_path = os.path.join(output_plot_dir, "route_orthographic.png")
-    interactive_globe_path = os.path.join(output_plot_dir, "route_globe_interactive.html")
-    density_plot_path = os.path.join(output_plot_dir, "density_vs_distance.png")
-    anchors_csv_path = os.path.join(output_data_dir, "optimized_anchor_points.csv")
-    spine_csv_path = os.path.join(output_data_dir, "spine_curve.csv")
+    map_path = output_plot_dir / "route_map.png"
+    globe_path = output_plot_dir / "route_globe.png"
+    ortho_path = output_plot_dir / "route_orthographic.png"
+    interactive_globe_path = output_plot_dir / "route_globe_interactive.html"
+    density_plot_path = output_plot_dir / "density_vs_distance.png"
+    anchors_csv_path = output_data_dir / "optimized_anchor_points.csv"
+    spine_csv_path = output_data_dir / "spine_curve.csv"
 
     plot_route_map(optimized_anchor_points, spine_lat, spine_lon, FLYOVER_REGIONS, save_path=map_path)
     plot_route_globe(optimized_anchor_points, spine_lat, spine_lon, save_path=globe_path)
