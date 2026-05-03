@@ -55,6 +55,17 @@ Current assumptions used in Breguet_runner.py:
 - Number of engines = 2
 - Fuel storage volume uses JP-7 density = 803 kg/m^3, using the X-51A
   JP-7 fuel choice as the reference.
+- If RUN_OPTIMIZER = True, Breguet_optimizer.py sweeps fuel type, engine count,
+  and specific impulse to minimize takeoff mass with fixed geometry.
+
+Optimizer settings in Breguet_optimizer.py:
+- ALLOWED_FUEL_FRACTION = 0.15
+- THRUST_MARGIN = 1.20
+- MAX_THRUST_PER_ENGINE_N = 60,000 N
+  Source:
+  https://www.afrl.af.mil/News/Article-Display/Article/2339336/afrl-achieves-record-setting-hypersonic-ground-test-milestone/
+- ENGINE_COUNT_OPTIONS = (2, 4, 6, 8, 10, 12, 14, 16)
+- FUEL_OPTIONS = JP-7, liquid methane, liquid hydrogen
 
 What it prints:
 - Range
@@ -69,6 +80,7 @@ What it prints:
 - Specific impulse
 - Number of engines
 - Required thrust
+- Required thrust per engine
 - Required thrust source
 - Engine thrust-to-weight ratio
 - Mass ratio Wi/Wf
@@ -83,6 +95,9 @@ What it prints:
 - Zero-fuel mass
 - Takeoff mass
 - Takeoff weight
+- Payload, airframe, powerplant, and fuel mass fractions
+- Optimizer objective and constraints
+- Best feasible optimizer case, when RUN_OPTIMIZER = True
 
 
 Assumptions in the Breguet Method

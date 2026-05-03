@@ -3,6 +3,13 @@
 from __future__ import annotations
 
 from Breguet import calculate_breguet_range_estimate
+from Breguet_optimizer import (
+    X51A_FUEL_DENSITY_KG_M3,
+    X51A_FUEL_VOLUME_M3,
+    estimate_fuel_storage_volume_m3,
+    optimize_breguet_inputs,
+    print_optimization_summary,
+)
 from engine_sizing import estimate_engine_sizing
 from main import build_waverider
 from Thruster_I_Hardly_Even_Know_Her import Thruster_I_Hardly_Even_Know_Her
@@ -14,12 +21,7 @@ ASSUMED_ISP_S = 1900.0
 ASSUMED_ENGINE_COUNT = 2
 L_OVER_D_SOURCE = "main"
 THRUST_SOURCE = "hardcoded"
-LB_TO_KG = 0.45359237
-
-# X-51A reference: JP-7 fueled SJY61 scramjet with approx. 270 lb JP-7 capacity.
-X51A_FUEL_DENSITY_KG_M3 = 803.0
-X51A_FUEL_CAPACITY_KG = 270.0 * LB_TO_KG
-X51A_FUEL_VOLUME_M3 = X51A_FUEL_CAPACITY_KG / X51A_FUEL_DENSITY_KG_M3
+RUN_OPTIMIZER = True
 
 
 def get_volume(waverider) -> tuple[float, str]:
@@ -47,12 +49,12 @@ def get_required_thrust() -> tuple[float, str]:
     raise ValueError("THRUST_SOURCE must be either 'hardcoded' or 'thruster'.")
 
 
-def estimate_fuel_storage_volume_m3(fuel_mass_kg: float) -> float:
-    """Return fuel volume using JP-7 density as the X-51A reference fuel."""
-    if fuel_mass_kg < 0.0:
-        raise ValueError("fuel_mass_kg must be non-negative.")
+def mass_fraction(component_mass_kg: float, total_mass_kg: float) -> float:
+    """Return component mass as a fraction of total mass."""
+    if total_mass_kg <= 0.0:
+        raise ValueError("total_mass_kg must be positive.")
 
-    return fuel_mass_kg / X51A_FUEL_DENSITY_KG_M3
+    return component_mass_kg / total_mass_kg
 
 
 def main() -> None:
@@ -90,6 +92,7 @@ def main() -> None:
     print(f"  Specific impulse          = {estimate.specific_impulse_s:,.1f} s")
     print(f"  Number of engines         = {estimate.engine_count}")
     print(f"  Required thrust           = {engine_sizing.required_thrust_N:,.1f} N")
+    print(f"  Required thrust/engine    = {engine_sizing.required_thrust_N / estimate.engine_count:,.1f} N")
     print(f"  Required thrust source    = {required_thrust_source}")
     print(f"  Engine thrust/weight      = {engine_sizing.thrust_to_weight_ratio:.2f}")
     print(f"  Mass ratio Wi/Wf          = {estimate.mass_ratio:.4f}")
@@ -107,10 +110,36 @@ def main() -> None:
     print(f"  Takeoff mass             = {estimate.takeoff_estimate.total_mass_kg:,.1f} kg")
     print(f"  Takeoff weight           = {estimate.takeoff_estimate.total_weight_N:,.1f} N")
     print("")
+    print("Mass Fractions")
+    print(
+        f"  Payload                  = "
+        f"{mass_fraction(estimate.takeoff_estimate.payload_mass_kg, estimate.takeoff_estimate.total_mass_kg):.2%}"
+    )
+    print(
+        f"  Airframe                 = "
+        f"{mass_fraction(estimate.takeoff_estimate.airframe_mass_kg, estimate.takeoff_estimate.total_mass_kg):.2%}"
+    )
+    print(
+        f"  Powerplant               = "
+        f"{mass_fraction(estimate.takeoff_estimate.powerplant_mass_kg, estimate.takeoff_estimate.total_mass_kg):.2%}"
+    )
+    print(
+        f"  Fuel                     = "
+        f"{mass_fraction(estimate.takeoff_estimate.fuel_mass_kg, estimate.takeoff_estimate.total_mass_kg):.2%}"
+    )
+    print("")
     print("Notes")
     print("  The Breguet calculation uses constant Mach, constant L/D, and constant Isp.")
     print("  Powerplant mass is computed by engine_sizing.py before fuel is estimated.")
     print("  No reserve, climb, acceleration, or descent fuel is included.")
+
+    if RUN_OPTIMIZER:
+        best_case, feasible_cases = optimize_breguet_inputs(
+            volume_m3=volume_m3,
+            lift_to_drag=lift_to_drag,
+            required_thrust_N=required_thrust_N,
+        )
+        print_optimization_summary(best_case, len(feasible_cases))
 
 
 if __name__ == "__main__":
