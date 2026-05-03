@@ -539,6 +539,43 @@ def compute_skin_friction(geom, lower_mesh, upper_mesh,
     )
 
 
+def getMaxWallShearStress(friction, surface="both"):
+    """
+    Return the maximum wall shear stress from a skin-friction result.
+
+    Parameters
+    ----------
+    friction : dict from compute_skin_friction.
+    surface  : 'lower', 'upper', or 'both'.
+
+    Returns
+    -------
+    float or None
+        Maximum tau_w across the requested surface(s), or None if missing.
+    """
+    if surface == "lower":
+        streamlines = friction.get("lower_streamlines", friction.get("streamlines", []))
+    elif surface == "upper":
+        streamlines = friction.get("upper_streamlines", [])
+    elif surface == "both":
+        lower = friction.get("lower_streamlines", friction.get("streamlines", []))
+        upper = friction.get("upper_streamlines", [])
+        streamlines = list(lower) + list(upper)
+    else:
+        raise ValueError("surface must be 'lower', 'upper', or 'both'")
+
+    max_tau = None
+    for res in streamlines:
+        tau = res.get("tau_w")
+        if tau is None or len(tau) == 0:
+            continue
+        tau_max = float(np.max(tau))
+        if max_tau is None or tau_max > max_tau:
+            max_tau = tau_max
+
+    return max_tau
+
+
 # ---------------------------------------------------------------------------
 # Mapping streamline results onto the mesh
 # ---------------------------------------------------------------------------

@@ -16,7 +16,7 @@ from pyvista_writer import (
     plot_geometry_views_pv,
 )
 from aerodynamics import compute_inviscid_forces, compute_pressure
-from boundary_layer import compute_skin_friction, skin_friction_on_mesh
+from boundary_layer import compute_skin_friction, skin_friction_on_mesh, getMaxWallShearStress
 from blunting_correction import (
     minimum_blunting_radius,
     blunt_leading_edge_force,
@@ -276,6 +276,7 @@ class Waverider:
             return
 
         Cp = self.inviscid_forces["Cp"]
+        tau_max = getMaxWallShearStress(self.viscous_forces)
         print(f"\nAerodynamic coefficients")
         print(f"  Cp mean       = {Cp.mean():.4f}  "
               f"range [{Cp.min():.4f}, {Cp.max():.4f}]")
@@ -285,6 +286,7 @@ class Waverider:
               f"(D_f = {self.viscous_forces['D_lower']:.1f} N)")
         print(f"  CDf upper     = {self.viscous_forces['CDf_upper']:.4f}  "
               f"(D_f = {self.viscous_forces['D_upper']:.1f} N)")
+        print(f"  tau_max       = {tau_max:.4f} Pa")
 
         print(f"\nBlunt-leading-edge correction")
         print(f"  T_allow       = {self.T_allow:.1f} K")
@@ -336,7 +338,7 @@ class Waverider:
 
         # Geometry view grids (shaded + wireframe)
         plot_geometry_views_pv(
-            lower_mesh, upper_mesh, style="shaded",
+            lower_mesh, upper_mesh, style="wireframe",
             save_path=os.path.join(output_dir, "geometry_views.png"),
         )
 
