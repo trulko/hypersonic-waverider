@@ -4,7 +4,7 @@ A Python toolkit for designing, analyzing, and optimizing **hypersonic cone-deri
 
 A full description of the waverider generation method, aerothermodynamics modeling, references, and results is provided in [doc/doc.pdf](doc/doc.pdf).
 
-![Geometry sweep](runs/route_visualization/plots/route_orthographic.png)
+![Geometry sweep](runs/route_visualization/plots/route_map.png)
 ![Optimized waverider Mach contours](runs/optimized_viscous/flowfield_mach.png)
 ![Optimized waverider geometry](runs/optimized_viscous/geometry_views.png)
 
